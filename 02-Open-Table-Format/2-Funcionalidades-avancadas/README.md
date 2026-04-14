@@ -56,11 +56,33 @@ A consulta deve terminar com **Consulta bem-sucedida**.
 <summary><b>Explicação do particionamento oculto no Iceberg</b></summary>
 <blockquote>
 
-O trecho `PARTITIONED BY (year(ws_sales_time))` diz ao Iceberg para organizar a tabela por ano a partir da coluna de tempo.
+Esse ponto é um dos grandes diferenciais do Iceberg em relação a abordagens mais antigas de data lake.
 
-A diferença importante é que o Iceberg faz isso com particionamento oculto: o usuário continua consultando a coluna original, enquanto o mecanismo usa a transformação de partição internamente para reduzir leitura desnecessária.
+### O que significa particionar por ano
 
-Isso melhora desempenho sem exigir que a consulta referencie manualmente uma coluna física de partição, como era comum em layouts mais antigos.
+Ao usar `PARTITIONED BY (year(ws_sales_time))`, você está dizendo que a organização física da tabela deve considerar o ano derivado da coluna de timestamp. Isso ajuda o mecanismo a evitar leitura desnecessária quando a consulta filtra intervalo de datas.
+
+### Por que o termo “oculto” é importante
+
+No modelo tradicional do Hive, o usuário muitas vezes precisava conhecer explicitamente a coluna de partição e até adaptar a consulta pensando no layout físico. No Iceberg, a tabela guarda essa lógica de forma mais inteligente.
+
+Ou seja:
+
+- você consulta pela coluna de negócio original
+- o Iceberg resolve internamente a transformação de partição
+- o Athena aproveita isso para fazer pruning e ler menos dados
+
+### Benefício prático
+
+Esse modelo traz três ganhos principais:
+
+- melhor desempenho de leitura
+- menos acoplamento entre consulta e layout físico
+- maior facilidade para evoluir a estratégia de particionamento no futuro
+
+### Padrão de uso
+
+Sempre que uma tabela analítica possui filtros frequentes por tempo, país, categoria ou outra dimensão de alta seletividade, vale avaliar uma estratégia de particionamento coerente com esse padrão de consulta.
 
 Documentação oficial:
 - [Particionamento em tabelas Iceberg no Athena](https://docs.aws.amazon.com/athena/latest/ug/querying-iceberg-creating-tables.html)
@@ -128,15 +150,37 @@ WHERE ws_sales_time >= TIMESTAMP '2000-01-01 00:00:00' AND ws_sales_time < TIMES
 <summary><b>Explicação do EXPLAIN ANALYZE neste contexto</b></summary>
 <blockquote>
 
-Aqui o objetivo não é revisar SQL básico, e sim confirmar se o Athena está aproveitando o particionamento do Iceberg durante a leitura.
+Aqui o objetivo é confirmar, com evidência, se o Athena está lendo apenas a parte necessária da tabela particionada.
 
-Ao analisar o plano e as estatísticas, observe principalmente:
+### O que o comando faz
 
-- volume de dados lido
-- linhas de entrada
-- redução de leitura para o intervalo de datas consultado
+- `EXPLAIN` mostra o plano de execução que a engine pretende usar
+- `EXPLAIN ANALYZE` executa a consulta e devolve estatísticas reais do processamento
 
-Se o pruning estiver funcionando, o Athena acessará apenas a porção relevante da tabela em vez de varrer todos os dados.
+Ou seja, ele deixa de ser apenas uma hipótese de plano e passa a mostrar como a consulta se comportou de verdade.
+
+### Por que isso importa neste laboratório
+
+Como a tabela foi particionada por ano, queremos observar se um filtro temporal faz pruning corretamente. Se estiver tudo certo, o Athena evita varrer anos que não participam da análise.
+
+### O que observar na prática
+
+Ao inspecionar o resultado, concentre-se em pontos como:
+
+- quantidade de dados lidos
+- linhas de entrada por operador
+- presença de `TableScan`, `Filter` e `Aggregate`
+- diferença entre uma consulta com filtro de data e outra sem filtro
+
+### Padrão de interpretação
+
+Se a consulta acessa muito mais dados do que o necessário, isso pode indicar:
+
+- filtro mal definido
+- estratégia de partição inadequada
+- baixa seletividade na condição
+
+Esse tipo de leitura do plano é essencial para análise de performance em lakehouse.
 
 Documentação oficial:
 - [EXPLAIN no Athena](https://docs.aws.amazon.com/athena/latest/ug/athena-explain-statement.html)
@@ -242,15 +286,37 @@ WHEN NOT MATCHED THEN INSERT (ws_order_number, ws_item_sk, ws_quantity, ws_sales
 <summary><b>Explicação do comando MERGE INTO</b></summary>
 <blockquote>
 
-O `MERGE INTO` aplica múltiplas regras em uma única operação transacional.
+O `MERGE INTO` é um comando muito importante em arquitetura analítica moderna porque concentra atualização, inserção e exclusão em uma única instrução transacional.
 
-Neste laboratório, ele usa a coluna `operation` da tabela auxiliar para decidir se cada linha deve:
+### Como ler a estrutura do comando
 
-- atualizar um registro já existente
-- inserir um novo registro
-- excluir um registro correspondente
+- a tabela de destino recebe um alias, aqui `t`
+- a tabela de origem recebe um alias, aqui `s`
+- a cláusula `ON` define a chave de correspondência entre origem e destino
+- as cláusulas `WHEN MATCHED` e `WHEN NOT MATCHED` definem a ação para cada caso
 
-Esse padrão é muito comum em pipelines de ingestão incremental, CDC e sincronização de tabelas analíticas.
+### O padrão usado neste laboratório
+
+A coluna `operation` funciona como um indicador semântico:
+
+- `U` representa update
+- `I` representa insert
+- `D` representa delete
+
+Com isso, uma tabela auxiliar controla todo o comportamento do merge.
+
+### Por que esse padrão é tão usado
+
+Esse desenho aparece com frequência em:
+
+- ingestão incremental de dados
+- processos de CDC
+- sincronização entre camada operacional e camada analítica
+- atualização periódica de dimensões e fatos
+
+### Boa prática conceitual
+
+O mais importante para um `MERGE` seguro é garantir que a condição do `ON` identifique corretamente os registros. Em outras palavras, a chave de correspondência precisa refletir a identidade do dado que está sendo sincronizado.
 
 Documentação oficial:
 - [MERGE INTO no Athena](https://docs.aws.amazon.com/athena/latest/ug/merge-into-statement.html)
@@ -337,15 +403,37 @@ A consulta deve terminar com **Consulta bem-sucedida**.
 <summary><b>Explicação do comando OPTIMIZE</b></summary>
 <blockquote>
 
-O `OPTIMIZE ... REWRITE DATA USING BIN_PACK` reorganiza os arquivos da tabela para melhorar eficiência de leitura.
+`OPTIMIZE` é um comando de manutenção física da tabela. Ele não muda a lógica do dado de negócio, mas melhora a forma como os arquivos ficam organizados para leitura posterior.
 
-Na prática, esse processo ajuda a:
+### O problema que ele resolve
 
-- compactar muitos arquivos pequenos em menos arquivos maiores
-- reduzir o custo de leitura em consultas futuras
-- consolidar efeitos de alterações anteriores como updates e deletes
+Ao longo do tempo, uma tabela Iceberg pode acumular:
 
-Essa etapa faz bastante sentido em tabelas Iceberg sujeitas a manutenção frequente ou ingestão incremental.
+- muitos arquivos pequenos
+- arquivos resultantes de updates e deletes
+- fragmentação que aumenta o custo de leitura
+
+Quando isso acontece, a consulta continua correta, mas pode ficar menos eficiente.
+
+### O que significa `REWRITE DATA USING BIN_PACK`
+
+A estratégia de bin pack tenta reorganizar os arquivos em grupos mais equilibrados, reduzindo a fragmentação e melhorando o aproveitamento das leituras futuras.
+
+### Quando esse comando costuma fazer sentido
+
+Esse padrão aparece bastante depois de:
+
+- várias cargas incrementais pequenas
+- operações frequentes de `MERGE`, `UPDATE` ou `DELETE`
+- períodos em que a tabela começou a sofrer degradação de performance
+
+### O que comparar antes e depois
+
+O laboratório acerta ao pedir a inspeção dos arquivos antes e depois do `OPTIMIZE`. É exatamente assim que se valida o efeito operacional da manutenção:
+
+- quantidade de arquivos
+- distribuição por partição
+- consolidação do estado da tabela
 
 Documentação oficial:
 - [OPTIMIZE no Athena](https://docs.aws.amazon.com/athena/latest/ug/optimize-statement.html)

@@ -72,9 +72,30 @@ As consultas seguem a [especificação de formato Iceberg v2](https://iceberg.ap
 <summary><b>Explicação do consumo de tabelas Iceberg no Athena</b></summary>
 <blockquote>
 
-Do ponto de vista do usuário, a leitura parece uma consulta SQL comum. A diferença é que o Athena resolve internamente a camada de snapshots, manifestos e arquivos de deleção do Iceberg antes de entregar o resultado final.
+O grande valor aqui é perceber que consumir uma tabela Iceberg é muito mais do que ler um conjunto de arquivos Parquet soltos no S3.
 
-Isso permite consultar dados atualizados e consistentes sem que você precise manipular arquivos do data lake manualmente.
+### O que acontece quando você faz um SELECT
+
+Do ponto de vista do aluno, a consulta é apenas SQL. Mas internamente o Athena precisa:
+
+- localizar o snapshot atual da tabela
+- identificar os manifestos relevantes
+- descobrir quais arquivos de dados pertencem àquela versão
+- considerar arquivos de deleção quando existirem operações de linha
+- montar a visão consistente que será entregue como resultado
+
+### O que isso muda na prática
+
+Esse mecanismo permite que você tenha em um data lake capacidades típicas de banco analítico moderno, como:
+
+- leitura consistente mesmo após `UPDATE` e `DELETE`
+- histórico de versões
+- evolução de esquema
+- maior governança sobre a tabela
+
+### Padrão mental importante
+
+Em uma open table format, a tabela deixa de ser apenas armazenamento e passa a ser uma estrutura governada por metadados. É isso que viabiliza o conceito de lakehouse.
 
 Documentação oficial:
 - [Consultar Apache Iceberg no Athena](https://docs.aws.amazon.com/athena/latest/ug/querying-iceberg.html)
@@ -119,14 +140,44 @@ GROUP BY ws_warehouse_sk
 <summary><b>Explicação dos comandos EXPLAIN e EXPLAIN ANALYZE</b></summary>
 <blockquote>
 
-Nesta aula, esses comandos são úteis para enxergar como o Athena pretende executar a consulta e quanto trabalho realmente foi feito.
+Esses comandos são fundamentais para sair do nível “a consulta funciona” e chegar ao nível “eu entendo como a engine está trabalhando”.
 
-Use:
+### O que é o EXPLAIN
 
-- `EXPLAIN` para ver o plano lógico e distribuído antes da execução completa
-- `EXPLAIN ANALYZE` para medir o comportamento real, incluindo leitura e processamento
+`EXPLAIN` pede ao Athena o plano de execução da consulta. Em vez de retornar o dado de negócio, ele devolve a estratégia planejada pela engine para ler, filtrar, agregar e distribuir o processamento.
 
-Esse tipo de análise ajuda a validar pruning, distribuição e custo de consultas sobre tabelas Iceberg.
+Isso ajuda a responder perguntas como:
+
+- a consulta vai varrer a tabela inteira ou só parte dela?
+- há filtros sendo aplicados cedo no plano?
+- a agregação está acontecendo de forma esperada?
+
+### O que é o EXPLAIN ANALYZE
+
+`EXPLAIN ANALYZE` vai além: ele executa a consulta e mostra estatísticas reais do que aconteceu. É por isso que ele é tão útil para análise de performance.
+
+### Padrões de uso muito comuns
+
+Você pode usar esses comandos para comparar:
+
+- uma consulta com filtro versus sem filtro
+- uma versão antes e depois de particionamento
+- uma leitura direta da tabela versus uma view analítica
+
+### Exemplo mental para interpretar
+
+Se você filtra por um subconjunto pequeno de dados e o plano ainda mostra leitura muito ampla, isso é um sinal de que o desenho da tabela ou da consulta pode ser melhorado.
+
+Por outro lado, quando o volume lido cai bastante após um filtro seletivo, isso indica que o mecanismo está aproveitando bem a estrutura do Iceberg.
+
+### O que observar nos resultados
+
+Em geral, vale prestar atenção em:
+
+- operadores de leitura, filtro e agregação
+- linhas de entrada e saída
+- volume processado
+- custo total percebido na execução
 
 Documentação oficial:
 - [EXPLAIN e EXPLAIN ANALYZE no Athena](https://docs.aws.amazon.com/athena/latest/ug/athena-explain-statement.html)
@@ -163,13 +214,28 @@ A execução deve terminar com **Consulta bem-sucedida**.
 <summary><b>Explicação do comando CREATE VIEW</b></summary>
 <blockquote>
 
-A view salva uma consulta lógica reutilizável sobre a tabela Iceberg, sem duplicar os dados no S3.
+Uma view cria uma camada lógica de consumo sobre a tabela original. Ela não copia os dados nem cria um novo conjunto físico de arquivos no S3.
 
-Isso é útil para:
+### O que isso resolve
 
-- simplificar consultas recorrentes
-- padronizar métricas e recortes analíticos
-- entregar uma camada mais amigável para consumo por times de negócio
+Em vez de cada pessoa escrever sempre a mesma consulta com filtros e agregações, a view encapsula essa lógica em um objeto reutilizável.
+
+### Vantagens práticas
+
+Ela é útil para:
+
+- simplificar análises repetitivas
+- esconder complexidade de consultas maiores
+- padronizar indicadores para times diferentes
+- criar uma camada mais próxima da linguagem de negócio
+
+### Padrão comum em analytics
+
+É muito comum deixar a tabela Iceberg como camada base e construir views por cima para expor métricas, recortes e regras de leitura mais amigáveis.
+
+### O que aprender com este exemplo
+
+Neste caso, a view resume pedidos por depósito. Isso mostra como transformar uma tabela transacionalmente robusta em um artefato mais fácil de consumir no dia a dia analítico.
 
 Documentação oficial:
 - [CREATE VIEW no Athena](https://docs.aws.amazon.com/athena/latest/ug/views-console.html)
