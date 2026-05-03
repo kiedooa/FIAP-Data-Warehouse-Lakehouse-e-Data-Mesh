@@ -11,7 +11,7 @@
 #   6. Registra as tabelas no Glue Data Catalog
 #
 # Uso:
-#   bash 1-provisionamento/scripts/load_tpch.sh
+#   bash 01-provisionamento/scripts/load_tpch.sh
 # =============================================================================
 
 set -euo pipefail
@@ -426,5 +426,5 @@ echo "════════════════════════�
 echo " Listagem:"
 aws s3 ls "s3://${BUCKET}/raw/tpch/" --recursive --human-readable --summarize | tail -20
 echo ""
-echo " Próximo passo: abra 2-modelagem-e-carga/README.md"
+echo " Próximo passo: abra 02-modelagem-e-carga/README.md"
 echo "══════════════════════════════════════════════════════════════════"

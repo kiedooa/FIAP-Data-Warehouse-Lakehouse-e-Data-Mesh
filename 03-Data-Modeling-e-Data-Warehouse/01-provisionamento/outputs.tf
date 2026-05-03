@@ -88,8 +88,8 @@ output "next_steps" {
 
     1) Carregue o dataset TPC-H SF1 para o S3:
 
-         cd ../  # sair de 1-provisionamento
-         bash 1-provisionamento/scripts/load_tpch.sh
+         cd ../  # sair de 01-provisionamento
+         bash 01-provisionamento/scripts/load_tpch.sh
 
     2) Veja a senha do Redshift (sensível):
 
@@ -102,7 +102,7 @@ output "next_steps" {
          $(terraform output -raw psql_connection_string)
 
     4) Abra o Lab 03.1:
-         cd ../2-modelagem-e-carga/
+         cd ../02-modelagem-e-carga/
          cat README.md
 
     LEMBRETE: ao final da aula, rode terraform destroy!

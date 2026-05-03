@@ -2,7 +2,7 @@
 
 **Antes de começar, execute os passos abaixo para configurar o ambiente caso não tenha feito isso ainda na aula de HOJE: [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)**
 
-**Este laboratório assume que o schema `dw_star` existe e está populado** (fato `f_vendas`, dimensões `dim_customer` com SCD1, `dim_produto`, `dim_supplier`, `dim_geografia`, `dim_data`). Se você ainda não fez o [Lab 03.1](../2-modelagem-e-carga/README.md), volte e execute a Parte 3 dele. As queries deste lab consultam `dw_star.*` diretamente.
+**Este laboratório assume que o schema `dw_star` existe e está populado** (fato `f_vendas`, dimensões `dim_customer` com SCD1, `dim_produto`, `dim_supplier`, `dim_geografia`, `dim_data`). Se você ainda não fez o [Lab 03.1](../02-modelagem-e-carga/README.md), volte e execute a Parte 3 dele. As queries deste lab consultam `dw_star.*` diretamente.
 
 Neste laboratório, você sente na prática por que a modelagem raramente sobrevive inalterada de um trimestre para o outro. Três evoluções de negócio são aplicadas sobre o star schema do Lab 03.1, e cada uma força uma decisão de redesign.
 
@@ -1004,10 +1004,10 @@ Se você estava no Redshift Query Editor v2 no browser, alterne para a aba/janel
 
 ### 29. Acesse a pasta de provisionamento
 
-A infra foi criada pelo Terraform localizado em `1-provisionamento/`. Entre nela:
+A infra foi criada pelo Terraform localizado em `01-provisionamento/`. Entre nela:
 
 ```bash
-cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/1-provisionamento
+cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
 ```
 
 Confirme que você está no diretório certo (deve haver `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`):
@@ -1157,7 +1157,7 @@ Este é o fechamento da trilha de Data Modeling + Data Warehouse. Você construi
 | 13 | `img/terraform_output_antes_destroy.png` | `terraform output` listando os recursos ativos |
 | 14 | `img/aws_cleanup_verificado.png` | Os 3 comandos AWS CLI retornando vazio após o destroy |
 
-**Como tirar**: `Cmd+Shift+4` (macOS) ou `Print Screen` (Windows). Salve como PNG em `03-Data-Modeling-e-Data-Warehouse/3-analise-dimensional/img/`.
+**Como tirar**: `Cmd+Shift+4` (macOS) ou `Print Screen` (Windows). Salve como PNG em `03-Data-Modeling-e-Data-Warehouse/03-analise-dimensional/img/`.
 
 ---
 

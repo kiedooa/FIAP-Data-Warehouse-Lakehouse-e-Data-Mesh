@@ -1,7 +1,7 @@
 # 03 — Data Modeling e Data Warehouse no Amazon Redshift
 
 > [!NOTE]
-> Este README é a **proposta pedagógica** dos laboratórios da Aula 3. Ele descreve o que será implementado, por que é possível dentro das restrições do AWS Academy Learner Lab e quais são os passos macros. A implementação dos exercícios virá em subpastas próprias (`1-provisionamento`, `2-modelagem-e-carga`, `3-analise-dimensional`).
+> Este README é a **proposta pedagógica** dos laboratórios da Aula 3. Ele descreve o que será implementado, por que é possível dentro das restrições do AWS Academy Learner Lab e quais são os passos macros. A implementação dos exercícios virá em subpastas próprias (`01-provisionamento`, `02-modelagem-e-carga`, `03-analise-dimensional`).
 
 ---
 
@@ -39,7 +39,7 @@ Antes de desenhar qualquer exercício, é preciso respeitar as limitações do a
 | **Sem `create IAM role`** em serviços → alguns serviços falham | Sempre passar `LabRole` explicitamente no CloudFormation/Terraform. |
 
 > [!IMPORTANT]
-> O aluno **não vai provisionar infraestrutura na mão**. Todo o cluster/namespace Redshift, bucket S3 e catálogo Glue serão criados via **Terraform** (IaC) na pasta `1-provisionamento/`. O foco da aula é **modelar e consultar**, não clicar em console.
+> O aluno **não vai provisionar infraestrutura na mão**. Todo o cluster/namespace Redshift, bucket S3 e catálogo Glue serão criados via **Terraform** (IaC) na pasta `01-provisionamento/`. O foco da aula é **modelar e consultar**, não clicar em console.
 
 ---
 
@@ -50,7 +50,7 @@ Para garantir que **todos os alunos executem a mesma query e obtenham o mesmo re
 ### TPC-H Scale Factor 1 (~1.2 GB em Parquet)
 
 - **Fonte primária (bucket público AWS)**: [`s3://redshift-downloads/TPC-H/2.18/1GB/`](https://redshift-downloads.s3.amazonaws.com/TPC-H/2.18/1GB/) — bucket público mantido pela AWS, usado em tutoriais oficiais do Redshift. Contém os 8 arquivos do TPC-H SF1 em formato texto delimitado (`|`).
-- **Conversão para Parquet**: feita uma única vez pelo [`scripts/load_tpch.sh`](1-provisionamento/scripts/load_tpch.sh) dentro do Codespaces (download → convert → upload no bucket do aluno). Script usa `pandas` + `pyarrow` (já disponíveis no devcontainer).
+- **Conversão para Parquet**: feita uma única vez pelo [`scripts/load_tpch.sh`](01-provisionamento/scripts/load_tpch.sh) dentro do Codespaces (download → convert → upload no bucket do aluno). Script usa `pandas` + `pyarrow` (já disponíveis no devcontainer).
 - **Alternativa 100% pronta em Parquet** (caso o passo de conversão seja indesejado): [`s3://blogpost-sparkoneks-us-east-1/blog/BLOG_TPCDS-TPCH-PIGTPCH/tpch/`](https://registry.opendata.aws/) — outros mirrors AWS de TPC-H em Parquet estão catalogados no [AWS Open Data Registry](https://registry.opendata.aws/).
 - **Especificação oficial do benchmark**: [TPC-H Benchmark — TPC.org](https://www.tpc.org/tpch/)
 - **Repositório de referência AWS**: [awslabs/amazon-redshift-utils](https://github.com/awslabs/amazon-redshift-utils)
@@ -199,7 +199,7 @@ O aluno roda a query-âncora nos três schemas e obtém **três números diferen
 
 **Fluxo macro**:
 
-1. `terraform apply` em `1-provisionamento/` → sobe tudo
+1. `terraform apply` em `01-provisionamento/` → sobe tudo
 2. `bash scripts/load_tpch.sh` → baixa TPC-H, injeta `customer_history`, envia Parquet para S3
 3. Aluno abre Redshift Query Editor v2
 4. **Etapa A**: cria schema `oltp_mirror`, `COPY` das 8 tabelas, roda a query-âncora. Anota o número.
@@ -287,7 +287,7 @@ Os dois labs aqui são estruturados para ensinar três coisas que **só aparecem
 
 ## Infraestrutura a ser provisionada
 
-Toda a infraestrutura sobe via **Terraform** na pasta `1-provisionamento/`. Nenhum passo manual no console exceto copiar credenciais do AWS Academy.
+Toda a infraestrutura sobe via **Terraform** na pasta `01-provisionamento/`. Nenhum passo manual no console exceto copiar credenciais do AWS Academy.
 
 ### Recursos criados pelo Terraform
 
@@ -353,7 +353,7 @@ Apenas para a **preparação do dataset** (uma única vez):
 .devcontainer → Codespaces pronto
          │
          ▼
-1-provisionamento/
+01-provisionamento/
     ├── main.tf          → terraform apply
     ├── variables.tf
     ├── outputs.tf
@@ -373,7 +373,7 @@ O shell script `load_tpch.sh` é o único script — e só roda porque:
 ```
 03-Data-Modeling-e-Data-Warehouse/
 ├── README.md                          ← este arquivo (proposta)
-├── 1-provisionamento/
+├── 01-provisionamento/
 │   ├── README.md                      ← como subir o ambiente
 │   ├── main.tf                        ← Redshift provisionado + S3 + Glue DB
 │   ├── variables.tf
@@ -381,7 +381,7 @@ O shell script `load_tpch.sh` é o único script — e só roda porque:
 │   ├── versions.tf
 │   └── scripts/
 │       └── load_tpch.sh               ← dataset ingestion (uma vez)
-├── 2-modelagem-e-carga/                ← Lab 03.1 (três modelagens, três respostas)
+├── 02-modelagem-e-carga/                ← Lab 03.1 (três modelagens, três respostas)
 │   ├── README.md                       ← passo a passo narrativo
 │   ├── DECISION_TEMPLATE.md            ← template p/ aluno documentar escolha
 │   └── sql/
@@ -400,7 +400,7 @@ O shell script `load_tpch.sh` é o único script — e só roda porque:
 │           ├── 02_dim_customer_scd2.sql ← MERGE com customer_history
 │           ├── 03_fact.sql             ← aponta p/ versão vigente na data da venda
 │           └── 04_query_ancora.sql
-└── 3-analise-dimensional/              ← Lab 03.2 (três evoluções do negócio)
+└── 03-analise-dimensional/              ← Lab 03.2 (três evoluções do negócio)
     ├── README.md                       ← passo a passo narrativo
     └── sql/
         ├── evolucao_1_nova_receita/
@@ -489,7 +489,7 @@ Início da aula
 [Codespaces já rodando, credenciais atualizadas]
     │
     ▼
-cd 03-Data-Modeling-e-Data-Warehouse/1-provisionamento
+cd 03-Data-Modeling-e-Data-Warehouse/01-provisionamento
 terraform init && terraform apply            ← 5-8 min
     │
     ▼
@@ -498,7 +498,7 @@ bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + cu
     ▼
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Lab 03.1 — Três modelagens, três respostas (75-90 min)
-  cd 2-modelagem-e-carga/
+  cd 02-modelagem-e-carga/
     Etapa A: oltp_mirror       → query-âncora → anota número
     Etapa B: dw_star (SCD1)    → query-âncora → anota número
     Etapa C: dw_star_scd2      → query-âncora → anota número
@@ -509,7 +509,7 @@ bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + cu
     ▼
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Lab 03.2 — Evolução do negócio (60-75 min)
-  cd 3-analise-dimensional/
+  cd 03-analise-dimensional/
     Evolução 1: nova fórmula de receita (MV vs. view)
     Evolução 2: "cliente ativo" (SCD2 vs. snapshot periódico)
     Evolução 3: SLA de dashboard (redistkey + MV agregada)
@@ -518,7 +518,7 @@ bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + cu
     │
     ▼
 Fim da aula
-cd ../1-provisionamento && terraform destroy  ← preserva budget
+cd ../01-provisionamento && terraform destroy  ← preserva budget
 ```
 
 ---
@@ -526,10 +526,10 @@ cd ../1-provisionamento && terraform destroy  ← preserva budget
 ## Próximos passos (desenvolvimento deste lab)
 
 - [ ] **Validar proposta com o professor** (este README)
-- [ ] Criar `1-provisionamento/` com Terraform (main.tf, variables.tf, outputs.tf, versions.tf)
+- [ ] Criar `01-provisionamento/` com Terraform (main.tf, variables.tf, outputs.tf, versions.tf)
 - [ ] Escrever `scripts/load_tpch.sh` incluindo a geração sintética da `customer_history` (reclassificações posteriores a 1995 para ~5% dos clientes)
-- [ ] Criar `2-modelagem-e-carga/` com README narrativo + 3 subpastas de SQLs comentados (A, B, C)
-- [ ] Criar `3-analise-dimensional/` com README narrativo + 3 subpastas de SQLs comentados (3 evoluções)
+- [ ] Criar `02-modelagem-e-carga/` com README narrativo + 3 subpastas de SQLs comentados (A, B, C)
+- [ ] Criar `03-analise-dimensional/` com README narrativo + 3 subpastas de SQLs comentados (3 evoluções)
 - [ ] Criar `DECISION_TEMPLATE.md` para o aluno registrar a escolha no fim do 03.1
 - [ ] Adicionar blocos `💡 Clique para entender` em cada SQL, seguindo o padrão dos labs 01 e 02
 - [ ] Calcular e documentar os **três números esperados** da query-âncora (gabarito do professor)

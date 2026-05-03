@@ -9,7 +9,7 @@
 --     aws sts get-caller-identity --query Account --output text
 --
 -- Alternativa: rodar 'terraform output -raw s3_bucket_name' na pasta
--- 1-provisionamento/ para obter o nome completo do bucket.
+-- 01-provisionamento/ para obter o nome completo do bucket.
 -- =============================================================================
 --
 -- Observação sobre IAM_ROLE default:

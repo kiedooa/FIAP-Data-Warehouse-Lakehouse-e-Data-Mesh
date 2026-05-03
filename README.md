@@ -67,12 +67,12 @@ Comece pelo setup e avance sequencialmente. Cada laboratório tem seu próprio `
 |---|-------------|-----------|------|
 | 00 | **Setup e configuração do ambiente** | Fork do repositório, criação do Codespaces, acesso à conta AWS Academy, criação do bucket base no S3, configuração de credenciais e chave SSH. | [00-create-codespaces](00-create-codespaces/README.md) |
 | 01.1 | **Storage de objetos no S3** | Envio de arquivos de diferentes tamanhos para o S3, comparação entre estratégias de upload (multipart, transfer acceleration) e análise do comportamento do S3 para arquivos grandes, médios e pequenos. | [01-Storage/01-Storage-de-Objetos](01-Storage/01-Storage-de-Objetos/README.md) |
-| 02.1 | **Iceberg — Funcionalidades básicas** | Criação de tabelas Apache Iceberg no Athena, operações de `INSERT`, `UPDATE`, `DELETE`, consulta de snapshots e histórico (`FOR VERSION AS OF`, `FOR TIMESTAMP AS OF`) e evolução de esquema. | [02-Open-Table-Format/1-Funcionalidades-Basicas](02-Open-Table-Format/1-Funcionalidades-Basicas/README.md) |
-| 02.2 | **Iceberg — Funcionalidades avançadas** | Particionamento oculto (hidden partitioning), uso de `MERGE INTO` para atualizações condicionais e manutenção de tabelas com `OPTIMIZE`. | [02-Open-Table-Format/2-Funcionalidades-avancadas](02-Open-Table-Format/2-Funcionalidades-avancadas/README.md) |
-| 02.3 | **Iceberg — Consumindo tabelas** | Consulta de tabelas Iceberg no Athena, uso de `EXPLAIN` e `EXPLAIN ANALYZE` para análise de planos e criação de views sobre tabelas Iceberg. | [02-Open-Table-Format/3-Consumindo-tabelas](02-Open-Table-Format/3-Consumindo-tabelas/README.md) |
-| 03.0 | **Data Modeling — Provisionamento** | Sobe toda a infraestrutura do lab (S3, Glue Data Catalog, cluster Redshift `ra3.large`) via Terraform e carrega o dataset TPC-H SF1 com o script `load_tpch.sh`. | [03-Data-Modeling-e-Data-Warehouse/1-provisionamento](03-Data-Modeling-e-Data-Warehouse/1-provisionamento/README.md) |
-| 03.1 | **Do OLTP ao Star Schema** | Implementa três modelagens da mesma base TPC-H (espelho OLTP, star SCD Tipo 1, star SCD Tipo 2), executa a mesma pergunta de negócio nas três e observa por que os números divergem legitimamente. Fecha com um `DECISION.md` no estilo ADR. | [03-Data-Modeling-e-Data-Warehouse/2-modelagem-e-carga](03-Data-Modeling-e-Data-Warehouse/2-modelagem-e-carga/README.md) |
-| 03.2 | **Evolução do negócio no warehouse** | Três evoluções aplicadas sobre o star schema: nova fórmula de receita com Materialized Views versionadas, redefinição de "cliente ativo" (SCD2 × fato snapshot periódico) e SLA de 5s no dashboard executivo via redesign de distkey + MV pré-agregada. | [03-Data-Modeling-e-Data-Warehouse/3-analise-dimensional](03-Data-Modeling-e-Data-Warehouse/3-analise-dimensional/README.md) |
+| 02.1 | **Iceberg — Funcionalidades básicas** | Criação de tabelas Apache Iceberg no Athena, operações de `INSERT`, `UPDATE`, `DELETE`, consulta de snapshots e histórico (`FOR VERSION AS OF`, `FOR TIMESTAMP AS OF`) e evolução de esquema. | [02-Open-Table-Format/01-Funcionalidades-Basicas](02-Open-Table-Format/01-Funcionalidades-Basicas/README.md) |
+| 02.2 | **Iceberg — Funcionalidades avançadas** | Particionamento oculto (hidden partitioning), uso de `MERGE INTO` para atualizações condicionais e manutenção de tabelas com `OPTIMIZE`. | [02-Open-Table-Format/02-Funcionalidades-avancadas](02-Open-Table-Format/02-Funcionalidades-avancadas/README.md) |
+| 02.3 | **Iceberg — Consumindo tabelas** | Consulta de tabelas Iceberg no Athena, uso de `EXPLAIN` e `EXPLAIN ANALYZE` para análise de planos e criação de views sobre tabelas Iceberg. | [02-Open-Table-Format/03-Consumindo-tabelas](02-Open-Table-Format/03-Consumindo-tabelas/README.md) |
+| 03.0 | **Data Modeling — Provisionamento** | Sobe toda a infraestrutura do lab (S3, Glue Data Catalog, cluster Redshift `ra3.large`) via Terraform e carrega o dataset TPC-H SF1 com o script `load_tpch.sh`. | [03-Data-Modeling-e-Data-Warehouse/01-provisionamento](03-Data-Modeling-e-Data-Warehouse/01-provisionamento/README.md) |
+| 03.1 | **Do OLTP ao Star Schema** | Implementa três modelagens da mesma base TPC-H (espelho OLTP, star SCD Tipo 1, star SCD Tipo 2), executa a mesma pergunta de negócio nas três e observa por que os números divergem legitimamente. Fecha com um `DECISION.md` no estilo ADR. | [03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga](03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga/README.md) |
+| 03.2 | **Evolução do negócio no warehouse** | Três evoluções aplicadas sobre o star schema: nova fórmula de receita com Materialized Views versionadas, redefinição de "cliente ativo" (SCD2 × fato snapshot periódico) e SLA de 5s no dashboard executivo via redesign de distkey + MV pré-agregada. | [03-Data-Modeling-e-Data-Warehouse/03-analise-dimensional](03-Data-Modeling-e-Data-Warehouse/03-analise-dimensional/README.md) |
 
 ---
 
@@ -84,13 +84,13 @@ Comece pelo setup e avance sequencialmente. Cada laboratório tem seu próprio `
 ├── 01-Storage/
 │   └── 01-Storage-de-Objetos/         # Lab de storage no S3
 ├── 02-Open-Table-Format/
-│   ├── 1-Funcionalidades-Basicas/     # Lab Iceberg básico (INSERT/UPDATE/DELETE, time travel)
-│   ├── 2-Funcionalidades-avancadas/   # Lab Iceberg avançado (partitioning, MERGE, OPTIMIZE)
-│   └── 3-Consumindo-tabelas/          # Lab de consumo de tabelas Iceberg
+│   ├── 01-Funcionalidades-Basicas/     # Lab Iceberg básico (INSERT/UPDATE/DELETE, time travel)
+│   ├── 02-Funcionalidades-avancadas/   # Lab Iceberg avançado (partitioning, MERGE, OPTIMIZE)
+│   └── 03-Consumindo-tabelas/          # Lab de consumo de tabelas Iceberg
 ├── 03-Data-Modeling-e-Data-Warehouse/
-│   ├── 1-provisionamento/             # Terraform + script de carga do TPC-H
-│   ├── 2-modelagem-e-carga/           # Lab 03.1 — três modelagens, três respostas
-│   └── 3-analise-dimensional/         # Lab 03.2 — evolução do negócio no warehouse
+│   ├── 01-provisionamento/             # Terraform + script de carga do TPC-H
+│   ├── 02-modelagem-e-carga/           # Lab 03.1 — três modelagens, três respostas
+│   └── 03-analise-dimensional/         # Lab 03.2 — evolução do negócio no warehouse
 ├── .devcontainer/                     # Configuração do GitHub Codespaces
 └── FIAP.png
 ```
@@ -115,7 +115,7 @@ Comece pelo setup e avance sequencialmente. Cada laboratório tem seu próprio `
 Cada laboratório assume que os anteriores foram concluídos. Em especial:
 
 - Os labs de **Open Table Format (02.x)** dependem do bucket `base-config-<SEU RM>` criado no setup inicial e do ambiente TPC-DS preparado no primeiro lab do Athena.
-- Os labs de **Data Warehouse (03.x)** dependem da infraestrutura provisionada pelo Terraform em `03-Data-Modeling-e-Data-Warehouse/1-provisionamento/` e usam o dataset TPC-H SF1 carregado pelo script `load_tpch.sh`.
+- Os labs de **Data Warehouse (03.x)** dependem da infraestrutura provisionada pelo Terraform em `03-Data-Modeling-e-Data-Warehouse/01-provisionamento/` e usam o dataset TPC-H SF1 carregado pelo script `load_tpch.sh`.
 
 ---
 
@@ -124,7 +124,7 @@ Cada laboratório assume que os anteriores foram concluídos. Em especial:
 - **Blocos `💡 Clique para entender`**: sempre que encontrar nos READMEs, abra — eles trazem o contexto técnico e a motivação pedagógica de cada comando.
 - **Erro de tabela inexistente no Athena?** Verifique se o banco selecionado no painel esquerdo corresponde ao laboratório em que as tabelas foram criadas (`athena_iceberg_db`, `glue_iceberg_db`, etc.).
 - **Credenciais expiradas?** Cada sessão do AWS Academy dura 4 horas. Basta iniciar uma nova sessão e recopiar as credenciais para `~/.aws/credentials`.
-- **Cluster Redshift consumindo budget?** Ao final de cada aula, rode `terraform destroy` dentro de `03-Data-Modeling-e-Data-Warehouse/1-provisionamento/` para zerar os recursos. O cluster `ra3.large` é cobrado enquanto estiver provisionado, mesmo ocioso.
+- **Cluster Redshift consumindo budget?** Ao final de cada aula, rode `terraform destroy` dentro de `03-Data-Modeling-e-Data-Warehouse/01-provisionamento/` para zerar os recursos. O cluster `ra3.large` é cobrado enquanto estiver provisionado, mesmo ocioso.
 
 ---
 

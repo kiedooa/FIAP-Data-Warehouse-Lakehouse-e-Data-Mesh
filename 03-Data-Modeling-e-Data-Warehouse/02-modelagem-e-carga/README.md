@@ -2,7 +2,7 @@
 
 **Antes de começar, execute os passos abaixo para configurar o ambiente caso não tenha feito isso ainda na aula de HOJE: [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)**
 
-**Antes de começar também, execute o passo de provisionamento da infraestrutura: [1-provisionamento](../1-provisionamento/README.md). Ele sobe cluster Redshift, bucket S3 e carrega o TPC-H via Terraform + shell script. Este laboratório assume que o cluster está `available` e o dataset já está em `s3://dw-lab-<ACCOUNT_ID>/raw/tpch/`.**
+**Antes de começar também, execute o passo de provisionamento da infraestrutura: [01-provisionamento](../01-provisionamento/README.md). Ele sobe cluster Redshift, bucket S3 e carrega o TPC-H via Terraform + shell script. Este laboratório assume que o cluster está `available` e o dataset já está em `s3://dw-lab-<ACCOUNT_ID>/raw/tpch/`.**
 
 Neste laboratório, você vai responder **exatamente a mesma pergunta de negócio** em três modelagens diferentes da mesma base, observar que os números divergem, e entender por que cada divergência tem uma justificativa legítima. No final, você registra a sua escolha em um `DECISION.md`, simulando o que um engenheiro de dados produz na vida real.
 
@@ -69,7 +69,7 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
 3. Na caixa de autenticação, escolha **Database user name and password** e preencha:
    - Database: `dw_mba`
    - Username: `dwadmin`
-   - Password: o valor retornado por `terraform output -raw redshift_master_password` (no Codespaces, na pasta `1-provisionamento/`)
+   - Password: o valor retornado por `terraform output -raw redshift_master_password` (no Codespaces, na pasta `01-provisionamento/`)
 
 <!-- PRINT SUGERIDO: img/redshift_connection_form.png
      Caixa de autenticação preenchida (com a senha coberta/borrada).
@@ -1273,13 +1273,13 @@ Para quem quer ajudar na documentação visual, os pontos sugeridos para captura
 | 15 | `img/query_ancora_N3.png` | Resultado da query-âncora no SCD2 — `N₃` (diferente!) |
 | 16 | `img/reclassificacao_quantitativa.png` | Clientes que entraram/saíram de AUTOMOBILE |
 
-**Como tirar**: use `Cmd+Shift+4` no macOS ou `Print Screen` no Windows, salve como PNG, rename para o padrão sugerido e coloque em `03-Data-Modeling-e-Data-Warehouse/2-modelagem-e-carga/img/`.
+**Como tirar**: use `Cmd+Shift+4` no macOS ou `Print Screen` no Windows, salve como PNG, rename para o padrão sugerido e coloque em `03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga/img/`.
 
 ---
 
 ## Próximo passo
 
-No [Lab 03.2](../3-analise-dimensional/README.md) você vai partir do schema que escolheu aqui e ver o que acontece quando o **negócio evolui**: nova fórmula de receita, redefinição de "cliente ativo", SLA apertado de dashboard.
+No [Lab 03.2](../03-analise-dimensional/README.md) você vai partir do schema que escolheu aqui e ver o que acontece quando o **negócio evolui**: nova fórmula de receita, redefinição de "cliente ativo", SLA apertado de dashboard.
 
 ---
 

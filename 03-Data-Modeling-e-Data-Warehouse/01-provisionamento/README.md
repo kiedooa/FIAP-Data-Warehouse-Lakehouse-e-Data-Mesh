@@ -44,7 +44,7 @@ Se ambos funcionarem, prossiga.
 ### 1. Subir a infraestrutura
 
 ```bash
-cd 03-Data-Modeling-e-Data-Warehouse/1-provisionamento
+cd 03-Data-Modeling-e-Data-Warehouse/01-provisionamento
 terraform init
 terraform apply
 ```
@@ -146,7 +146,7 @@ SELECT current_user, current_database(), version();
 ### 4. Prossiga para o Lab 03.1
 
 ```bash
-cd ../2-modelagem-e-carga
+cd ../02-modelagem-e-carga
 cat README.md
 ```
 
@@ -176,7 +176,7 @@ aws redshift resume-cluster \
 ## Ao final da aula: destruir tudo
 
 ```bash
-cd 03-Data-Modeling-e-Data-Warehouse/1-provisionamento
+cd 03-Data-Modeling-e-Data-Warehouse/01-provisionamento
 terraform destroy
 ```
 
