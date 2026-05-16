@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# load_tpch.sh — Download TPC-H SF1, conversão para Parquet, upload para S3
+# load_tpch.sh — Copia TPC-H SF10 para o bucket do aluno (S3-to-S3, server-side)
 # =============================================================================
-# Executar APÓS terraform apply. Este script:
-#   1. Lê os outputs do Terraform (bucket, região)
-#   2. Baixa os arquivos .tbl do TPC-H SF1 do bucket público da AWS
-#   3. Converte cada .tbl para Parquet (snappy) via Python/pyarrow
-#   4. Gera a tabela sintética customer_history (reclassificações pós-1995)
-#   5. Faz upload para s3://<bucket>/raw/tpch/<tabela>/
-#   6. Registra as tabelas no Glue Data Catalog
+# Executar APÓS terraform apply. Estratégia rápida e enxuta:
+#   1. Lê outputs do Terraform (bucket de destino, região, glue db)
+#   2. Faz S3-to-S3 copy dos 8 arquivos .tbl do bucket público AWS para o
+#      bucket do aluno — sem passar pela rede local nem por Python
+#   3. Gera customer_history sintética em Python (Pandas) — pequeno, ~75k linhas
+#   4. Registra as 9 tabelas no Glue Data Catalog (formato CSV delimitado por "|")
+#
+# As tabelas TPC-H ficam em formato .tbl (texto delimitado por "|") e o
+# Redshift COPY lê esse formato direto via FORMAT AS CSV DELIMITER '|'.
+# Sem conversão para Parquet — simplifica e fica significativamente mais rápido.
 #
 # Uso:
 #   bash 01-provisionamento/scripts/load_tpch.sh
@@ -22,14 +25,14 @@ TF_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # -----------------------------------------------------------------------------
 # Pré-requisitos
 # -----------------------------------------------------------------------------
-command -v aws >/dev/null || { echo "ERRO: aws CLI não encontrado"; exit 1; }
-command -v terraform >/dev/null || { echo "ERRO: terraform não encontrado"; exit 1; }
-command -v python3 >/dev/null || { echo "ERRO: python3 não encontrado"; exit 1; }
+command -v aws       >/dev/null || { echo "ERRO: aws CLI nao encontrado"; exit 1; }
+command -v terraform >/dev/null || { echo "ERRO: terraform nao encontrado"; exit 1; }
+command -v python3   >/dev/null || { echo "ERRO: python3 nao encontrado"; exit 1; }
 
-# venv local: isola pandas/pyarrow do Python do sistema. Funciona igual em
-# Codespaces (Ubuntu) e Mac, e sobrevive a Python do Homebrew quebrado.
+# venv local apenas para gerar customer_history (~75k linhas, leve).
 VENV_DIR="${TF_DIR}/.venv"
-if [[ ! -d "${VENV_DIR}" ]]; then
+if [[ ! -f "${VENV_DIR}/bin/activate" ]]; then
+  rm -rf "${VENV_DIR}"
   echo ">> Criando venv em ${VENV_DIR}..."
   python3 -m venv "${VENV_DIR}" || {
     echo "ERRO: 'python3 -m venv' falhou. No Ubuntu rode: sudo apt-get install -y python3-venv"
@@ -46,7 +49,7 @@ python -c "import pandas, pyarrow" 2>/dev/null || {
 }
 
 # -----------------------------------------------------------------------------
-# Ler outputs do Terraform (fonte única de verdade)
+# Outputs do Terraform (fonte unica de verdade)
 # -----------------------------------------------------------------------------
 cd "${TF_DIR}"
 
@@ -60,250 +63,136 @@ BUCKET=$(terraform output -raw s3_bucket_name)
 REGION=$(terraform output -raw region)
 GLUE_DB=$(terraform output -raw glue_database_name)
 
+# Multipart agressivo: acelera S3-to-S3 e o get-bucket-versioning de leitura
+aws configure set default.s3.max_concurrent_requests 10
+aws configure set default.s3.multipart_threshold     64MB
+aws configure set default.s3.multipart_chunksize     32MB
+
 echo "══════════════════════════════════════════════════════════════════"
-echo " TPC-H SF1 Loader"
+echo " TPC-H SF10 Loader (S3-to-S3 server-side copy)"
 echo "══════════════════════════════════════════════════════════════════"
-echo " Bucket  : s3://${BUCKET}/raw/tpch/"
-echo " Região  : ${REGION}"
+echo " Destino : s3://${BUCKET}/raw/tpch/"
+echo " Regiao  : ${REGION}"
 echo " Glue DB : ${GLUE_DB}"
 echo "══════════════════════════════════════════════════════════════════"
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "${WORK_DIR}"' EXIT
-echo ">> Workspace temporário: ${WORK_DIR}"
+export WORK_DIR
+echo ">> Workspace temporario: ${WORK_DIR}"
 
 # -----------------------------------------------------------------------------
-# TPC-H SF1 schemas (DDL) — para registrar no Glue Catalog
+# S3-to-S3 copy (server-side) do bucket publico para o bucket do aluno
 # -----------------------------------------------------------------------------
-# Ordem matters: nation/region primeiro (pequenas, referenciadas por join)
+# O bucket publico s3://redshift-downloads/ permite s3:GetObject anonimo.
+# Para copiar entre buckets em paralelo, usamos `aws s3 cp` com --source-region.
+# Como o bucket publico esta em us-east-1, mesma regiao do aluno, a copia eh
+# server-side e o trafego nao atravessa a internet.
+# -----------------------------------------------------------------------------
 TABLES=(nation region customer supplier part partsupp orders lineitem)
 
-# -----------------------------------------------------------------------------
-# Download do TPC-H (bucket público oficial usado em tutoriais Redshift)
-# Fonte: s3://redshift-downloads/TPC-H/2.18/1GB/<table>.tbl
-# Cada arquivo é texto delimitado por "|" — convertido para Parquet a seguir.
-# -----------------------------------------------------------------------------
 echo ""
-echo ">> Baixando TPC-H SF1 do bucket público AWS..."
+echo ">> Copiando .tbl do bucket publico (server-side, mesma regiao, em paralelo)..."
+SRC_BUCKET="redshift-downloads"
+SRC_PREFIX="TPC-H/2.18/10GB"
+
+LOG_DIR="${WORK_DIR}/cp-logs"
+mkdir -p "${LOG_DIR}"
+
+copy_one() {
+  local t=$1
+  local src="s3://${SRC_BUCKET}/${SRC_PREFIX}/${t}.tbl"
+  local dst="s3://${BUCKET}/raw/tpch/${t}/${t}.tbl"
+  local log="${LOG_DIR}/${t}.log"
+  local start=$(date +%s)
+  if aws s3 cp "${src}" "${dst}" --copy-props none --no-progress >"${log}" 2>&1; then
+    local elapsed=$(( $(date +%s) - start ))
+    printf "   ✔ %-10s %ss\n" "${t}" "${elapsed}"
+  else
+    local elapsed=$(( $(date +%s) - start ))
+    printf "   ✘ %-10s %ss (FALHOU - veja %s)\n" "${t}" "${elapsed}" "${log}"
+    return 1
+  fi
+}
+
+# Dispara as 8 copias em paralelo. multipart_concurrent_requests=10 (default
+# do script) faz cada copia internamente paralelizar chunks da tabela grande.
+overall_start=$(date +%s)
+pids=()
 for t in "${TABLES[@]}"; do
-  echo "   - ${t}.tbl"
-  aws s3 cp "s3://redshift-downloads/TPC-H/2.18/1GB/${t}.tbl" "${WORK_DIR}/${t}.tbl" \
-    --no-sign-request --only-show-errors
+  copy_one "${t}" &
+  pids+=($!)
 done
 
-# -----------------------------------------------------------------------------
-# Conversão .tbl -> Parquet via Python
-# -----------------------------------------------------------------------------
-echo ""
-echo ">> Convertendo para Parquet (snappy)..."
+failed=0
+for pid in "${pids[@]}"; do
+  wait "${pid}" || failed=1
+done
+overall_elapsed=$(( $(date +%s) - overall_start ))
 
-python - <<'PYEOF'
-import os
-import sys
-import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
-
-WORK_DIR = os.environ["WORK_DIR"]
-
-# Schemas TPC-H (nome e tipo de cada coluna)
-# Baseados na especificação oficial TPC-H v2.18
-SCHEMAS = {
-    "nation": [
-        ("n_nationkey", "int32"),
-        ("n_name", "string"),
-        ("n_regionkey", "int32"),
-        ("n_comment", "string"),
-    ],
-    "region": [
-        ("r_regionkey", "int32"),
-        ("r_name", "string"),
-        ("r_comment", "string"),
-    ],
-    "customer": [
-        ("c_custkey", "int64"),
-        ("c_name", "string"),
-        ("c_address", "string"),
-        ("c_nationkey", "int32"),
-        ("c_phone", "string"),
-        ("c_acctbal", "float64"),
-        ("c_mktsegment", "string"),
-        ("c_comment", "string"),
-    ],
-    "supplier": [
-        ("s_suppkey", "int64"),
-        ("s_name", "string"),
-        ("s_address", "string"),
-        ("s_nationkey", "int32"),
-        ("s_phone", "string"),
-        ("s_acctbal", "float64"),
-        ("s_comment", "string"),
-    ],
-    "part": [
-        ("p_partkey", "int64"),
-        ("p_name", "string"),
-        ("p_mfgr", "string"),
-        ("p_brand", "string"),
-        ("p_type", "string"),
-        ("p_size", "int32"),
-        ("p_container", "string"),
-        ("p_retailprice", "float64"),
-        ("p_comment", "string"),
-    ],
-    "partsupp": [
-        ("ps_partkey", "int64"),
-        ("ps_suppkey", "int64"),
-        ("ps_availqty", "int32"),
-        ("ps_supplycost", "float64"),
-        ("ps_comment", "string"),
-    ],
-    "orders": [
-        ("o_orderkey", "int64"),
-        ("o_custkey", "int64"),
-        ("o_orderstatus", "string"),
-        ("o_totalprice", "float64"),
-        ("o_orderdate", "date32"),
-        ("o_orderpriority", "string"),
-        ("o_clerk", "string"),
-        ("o_shippriority", "int32"),
-        ("o_comment", "string"),
-    ],
-    "lineitem": [
-        ("l_orderkey", "int64"),
-        ("l_partkey", "int64"),
-        ("l_suppkey", "int64"),
-        ("l_linenumber", "int32"),
-        ("l_quantity", "float64"),
-        ("l_extendedprice", "float64"),
-        ("l_discount", "float64"),
-        ("l_tax", "float64"),
-        ("l_returnflag", "string"),
-        ("l_linestatus", "string"),
-        ("l_shipdate", "date32"),
-        ("l_commitdate", "date32"),
-        ("l_receiptdate", "date32"),
-        ("l_shipinstruct", "string"),
-        ("l_shipmode", "string"),
-        ("l_comment", "string"),
-    ],
-}
-
-pd_dtype = {
-    "int32": "Int32",
-    "int64": "Int64",
-    "float64": "float64",
-    "string": "string",
-    "date32": "string",  # ler como string, converter para date depois
-}
-
-for table, schema in SCHEMAS.items():
-    in_path = os.path.join(WORK_DIR, f"{table}.tbl")
-    out_path = os.path.join(WORK_DIR, f"{table}.parquet")
-    col_names = [c[0] for c in schema]
-    dtypes = {c[0]: pd_dtype[c[1]] for c in schema}
-
-    print(f"   - {table} ({os.path.getsize(in_path)/1024/1024:.1f} MB)")
-
-    # TPC-H .tbl tem um separador "|" e um pipe final em cada linha → coluna extra
-    df = pd.read_csv(
-        in_path,
-        sep="|",
-        header=None,
-        names=col_names + ["__trailing"],
-        dtype=dtypes,
-        parse_dates=False,
-        engine="c",
-    ).drop(columns="__trailing")
-
-    # Converte colunas de data
-    for col, typ in schema:
-        if typ == "date32":
-            df[col] = pd.to_datetime(df[col], format="%Y-%m-%d", errors="coerce").dt.date
-
-    # Grava Parquet
-    table_pa = pa.Table.from_pandas(df, preserve_index=False)
-    pq.write_table(table_pa, out_path, compression="snappy")
-    print(f"     -> {out_path}")
-
-PYEOF
-
-export WORK_DIR
+if [[ ${failed} -ne 0 ]]; then
+  echo "ERRO: alguma copia falhou — abortando."
+  exit 1
+fi
+echo "   total da copia paralela: ${overall_elapsed}s"
 
 # -----------------------------------------------------------------------------
-# Geração da tabela sintética customer_history
+# Geracao da customer_history sintetica
 # -----------------------------------------------------------------------------
-# Para viabilizar SCD Tipo 2 no Lab 03.1, injetamos reclassificações
-# posteriores a 1995 em ~5% dos clientes. Essa tabela NÃO existe no TPC-H
-# original; é uma simulação didática.
-#
-# Schema:
-#   c_custkey      (int64)       — FK para customer
-#   mktsegment_new (string)      — novo segmento (reclassificação)
-#   valid_from     (date)        — data em que o novo segmento passou a valer
-#
-# Pedagogicamente, isso permite perguntas como:
-#   "Qual era o segmento do cliente X no momento da venda em 1995-06-12?"
+# Para gerar a customer_history precisamos da customer real. Como nao queremos
+# baixar customer.tbl inteiro (243 MB), usamos a copia ja no bucket do aluno:
+# baixar so customer.tbl (243 MB cabe em RAM tranquilo) e gerar o subset.
 # -----------------------------------------------------------------------------
 echo ""
-echo ">> Gerando customer_history (reclassificações sintéticas)..."
+echo ">> Baixando customer.tbl para gerar customer_history sintetica..."
+aws s3 cp "s3://${BUCKET}/raw/tpch/customer/customer.tbl" "${WORK_DIR}/customer.tbl" --no-progress
+ls -lh "${WORK_DIR}/customer.tbl"
 
+echo ""
+echo ">> Gerando customer_history (5% dos clientes, seed 42)..."
 python - <<'PYEOF'
 import os
 import random
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 WORK_DIR = os.environ["WORK_DIR"]
-random.seed(42)  # reproduzibilidade — todo aluno gera o mesmo dataset
+random.seed(42)
 
-# Lê a dimensão customer já convertida para Parquet
-cust = pd.read_parquet(os.path.join(WORK_DIR, "customer.parquet"))
+cols = ["c_custkey","c_name","c_address","c_nationkey","c_phone",
+        "c_acctbal","c_mktsegment","c_comment","__trailing"]
+cust = pd.read_csv(
+    os.path.join(WORK_DIR, "customer.tbl"),
+    sep="|", header=None, names=cols, engine="c",
+)[["c_custkey","c_mktsegment"]]
 
-# Sorteia 5% dos clientes para reclassificação
+print(f"   - customer base: {len(cust):,} clientes")
+
 sample = cust.sample(frac=0.05, random_state=42).copy()
 
-segments = ["BUILDING", "AUTOMOBILE", "MACHINERY", "HOUSEHOLD", "FURNITURE"]
+segments = ["BUILDING","AUTOMOBILE","MACHINERY","HOUSEHOLD","FURNITURE"]
 
 def pick_new(old):
-    choices = [s for s in segments if s != old]
-    return random.choice(choices)
+    return random.choice([s for s in segments if s != old])
 
 sample["mktsegment_new"] = sample["c_mktsegment"].apply(pick_new)
 
-# Distribui datas de mudança entre 1996-01-01 e 1998-12-31
-# (após o ano de 1995 usado na query-âncora — mudanças "futuras" em relação à venda)
-dates = pd.date_range("1996-01-01", "1998-12-31", freq="D")
+dates = pd.date_range("1996-01-01","1998-12-31", freq="D")
 sample["valid_from"] = [random.choice(dates).date() for _ in range(len(sample))]
 
-history = sample[["c_custkey", "mktsegment_new", "valid_from"]].reset_index(drop=True)
+history = sample[["c_custkey","mktsegment_new","valid_from"]].reset_index(drop=True)
 
-out_path = os.path.join(WORK_DIR, "customer_history.parquet")
-pq.write_table(pa.Table.from_pandas(history, preserve_index=False), out_path, compression="snappy")
+# Escreve em formato .tbl (CSV delimitado por "|", consistente com TPC-H)
+out_path = os.path.join(WORK_DIR, "customer_history.tbl")
+history.to_csv(out_path, sep="|", header=False, index=False, date_format="%Y-%m-%d")
 
-print(f"   - customer_history: {len(history)} reclassificações")
+print(f"   - customer_history: {len(history):,} reclassificacoes")
 print(f"     -> {out_path}")
 PYEOF
 
-# -----------------------------------------------------------------------------
-# Upload para S3
-# -----------------------------------------------------------------------------
-echo ""
-echo ">> Enviando Parquet para s3://${BUCKET}/raw/tpch/..."
-
-for t in "${TABLES[@]}" customer_history; do
-  src="${WORK_DIR}/${t}.parquet"
-  dst="s3://${BUCKET}/raw/tpch/${t}/${t}.parquet"
-  echo "   - ${t} -> ${dst}"
-  aws s3 cp "${src}" "${dst}" --only-show-errors
-done
+aws s3 cp "${WORK_DIR}/customer_history.tbl" "s3://${BUCKET}/raw/tpch/customer_history/customer_history.tbl" --no-progress
 
 # -----------------------------------------------------------------------------
 # Registro no Glue Data Catalog
-# -----------------------------------------------------------------------------
-# Catalogamos as tabelas para referência/visualização no console Glue.
-# O lab não usa Spectrum (não listado no PDF do Learner Lab), mas o catálogo
-# serve como documentação viva da estrutura dos Parquets.
 # -----------------------------------------------------------------------------
 echo ""
 echo ">> Registrando tabelas no Glue Data Catalog (${GLUE_DB})..."
@@ -313,7 +202,6 @@ register_glue_table() {
   local columns_json=$2
   local location="s3://${BUCKET}/raw/tpch/${table}/"
 
-  # Remove se já existir (idempotência)
   aws glue delete-table \
     --database-name "${GLUE_DB}" \
     --name "${table}" \
@@ -326,16 +214,18 @@ register_glue_table() {
       \"Name\": \"${table}\",
       \"TableType\": \"EXTERNAL_TABLE\",
       \"Parameters\": {
-        \"classification\": \"parquet\",
+        \"classification\": \"csv\",
+        \"delimiter\": \"|\",
         \"has_encrypted_data\": \"false\"
       },
       \"StorageDescriptor\": {
         \"Columns\": ${columns_json},
         \"Location\": \"${location}\",
-        \"InputFormat\": \"org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat\",
-        \"OutputFormat\": \"org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat\",
+        \"InputFormat\": \"org.apache.hadoop.mapred.TextInputFormat\",
+        \"OutputFormat\": \"org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat\",
         \"SerdeInfo\": {
-          \"SerializationLibrary\": \"org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe\"
+          \"SerializationLibrary\": \"org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe\",
+          \"Parameters\": {\"field.delim\": \"|\"}
         }
       }
     }" >/dev/null
@@ -435,10 +325,9 @@ register_glue_table customer_history '[
 
 echo ""
 echo "══════════════════════════════════════════════════════════════════"
-echo " ✅ TPC-H SF1 carregado com sucesso!"
+echo " TPC-H SF10 carregado no S3 com sucesso!"
 echo "══════════════════════════════════════════════════════════════════"
-echo " Listagem:"
-aws s3 ls "s3://${BUCKET}/raw/tpch/" --recursive --human-readable --summarize | tail -20
+aws s3 ls "s3://${BUCKET}/raw/tpch/" --recursive --human-readable --summarize | tail -15
 echo ""
-echo " Próximo passo: abra 02-modelagem-e-carga/README.md"
+echo " Proximo passo: abra 02-modelagem-e-carga/README.md"
 echo "══════════════════════════════════════════════════════════════════"
