@@ -47,7 +47,23 @@ Se ambos funcionarem, prossiga.
 
 ---
 
+## Mapa do lab
+
+| Passo | O que você faz | Tempo |
+|-------|----------------|-------|
+| [Passo 1](#passo-1) | Subir a infraestrutura (`terraform apply`) | ~1m20-5min |
+| [Passo 2](#passo-2) | Carregar o dataset TPC-H (`load_tpch.sh`) | ~1m40 |
+| [Passo 3](#passo-3) | Conectar no Redshift via Query Editor v2 ou psql | ~3 min |
+| [Passo 4](#passo-4) | Prossiga para o Lab 03.2 | imediato |
+
+> [!TIP]
+> Se travou em algum passo, você pode pular direto: clique no número do passo acima.
+
+---
+
 ## Passo a passo
+
+<a id="passo-1"></a>
 
 ### 1. Subir a infraestrutura
 
@@ -58,6 +74,12 @@ terraform apply
 ```
 
 Tempo típico: **1m20 a 5 minutos** (o Redshift é o que mais demora; 2 nós ra3.large levam ~1m20 quando a região tem capacidade).
+
+<!-- PRINT SUGERIDO: img/terraform_apply_sucesso.png
+     Saída final do terraform apply: linha "Apply complete! Resources: 15 added"
+     + bloco next_steps com endpoint do Redshift, bucket, glue_database. Confirma
+     que a infra subiu inteira. -->
+![](img/terraform_apply_sucesso.png)
 
 <details>
 <summary><b>💡 Clique para entender: o que <code>scripts/init.sh</code> faz</b></summary>
@@ -142,6 +164,10 @@ terraform output -raw redshift_master_password
 </blockquote>
 </details>
 
+---
+
+<a id="passo-2"></a>
+
 ### 2. Carregar o dataset TPC-H
 
 ```bash
@@ -156,6 +182,12 @@ Tempo típico: **~1m40**. O script:
 3. Baixa apenas o `customer.tbl` (232 MB) localmente para gerar a tabela sintética `customer_history` (75k reclassificações com seed 42, essencial para o SCD2 do Lab 03.2)
 4. Faz upload do `customer_history.tbl` para o S3
 5. Registra as 9 tabelas no Glue Data Catalog (formato CSV `|` delimitado)
+
+<!-- PRINT SUGERIDO: img/load_tpch_listagem_final.png
+     Listagem final do load_tpch.sh: 9 objetos no S3, total 10.4 GiB,
+     com tempos individuais de cada copia paralela (lineitem ~50s).
+     Confirma que a carga terminou inteira. -->
+![](img/load_tpch_listagem_final.png)
 
 <details>
 <summary><b>💡 Clique para entender: o que é customer_history e por que ela é injetada?</b></summary>
@@ -192,11 +224,22 @@ bash scripts/load_tpch.sh
 </blockquote>
 </details>
 
+---
+
+<a id="passo-3"></a>
+
 ### 3. Conectar no Redshift
 
 Dois caminhos suportados. Escolha um:
 
 #### Caminho A — Query Editor v2 (recomendado)
+
+<!-- PRINT SUGERIDO: img/qev2_create_connection.png
+     Tela "Create connection" do Query Editor v2 com o cluster
+     dw-aula3-<short_id> selecionado, "Database user and password"
+     marcado, dwadmin no usuario, dw_mba no banco. Onde o aluno
+     mais erra na primeira vez. -->
+![](img/qev2_create_connection.png)
 
 1. No console AWS, abra **Redshift → Query Editor v2**
 2. Clique no cluster `dw-aula3-<short_id>`
@@ -247,6 +290,10 @@ Verifique, em ordem:
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-4"></a>
 
 ### 4. Prossiga para o Lab 03.2
 

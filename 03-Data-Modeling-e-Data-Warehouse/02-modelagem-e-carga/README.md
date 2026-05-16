@@ -68,13 +68,16 @@ Ao final deste laboratório, você terá implementado três modelagens do mesmo 
 
 ## Mapa do lab
 
-| Parte | O que você faz | Tempo |
-|-------|----------------|-------|
-| [Parte 1](#parte-1---acessando-o-redshift-pelo-query-editor-v2) | Acessa o Redshift pelo Query Editor v2 | ~5 min |
-| [Parte 2](#parte-2---modelagem-a-espelho-do-oltp) | Modelagem A — espelho OLTP → produz `N₁` | ~30 min (9 min de COPY do `lineitem` + leitura) |
-| [Parte 3](#parte-3---modelagem-b-star-schema-com-scd-tipo-1) | Modelagem B — star schema SCD1 → produz `N₂` | ~25 min (3 min de execução + leitura) |
-| [Parte 4](#parte-4---modelagem-c-star-schema-com-scd-tipo-2) | Modelagem C — star schema SCD2 → produz `N₃` | ~20 min (3 min de execução + leitura) |
-| [Parte 5](#parte-5---comparando-os-três-resultados) | Compara `N₁`, `N₂`, `N₃` e escreve `DECISION.md` | ~10 min |
+| Parte | O que você faz | Passos | Tempo |
+|-------|----------------|--------|-------|
+| [Parte 1](#parte-1---acessando-o-redshift-pelo-query-editor-v2) | Acessa o Redshift pelo Query Editor v2 | [1](#passo-1) · [2](#passo-2) · [3](#passo-3) · [4](#passo-4) | ~5 min |
+| [Parte 2](#parte-2---modelagem-a-espelho-do-oltp) | Modelagem A — espelho OLTP → produz `N₁` | [5](#passo-5) · [6](#passo-6) · [7](#passo-7) · [8](#passo-8) · [9](#passo-9) · [10](#passo-10) | ~30 min |
+| [Parte 3](#parte-3---modelagem-b-star-schema-com-scd-tipo-1) | Modelagem B — star schema SCD1 → produz `N₂` | [11](#passo-11) · [12](#passo-12) · [13](#passo-13) · [14](#passo-14)([a](#passo-14a)·[b](#passo-14b)·[c](#passo-14c)·[d](#passo-14d)) · [15](#passo-15) · [16](#passo-16) · [17](#passo-17) · [18](#passo-18) | ~25 min |
+| [Parte 4](#parte-4---modelagem-c-star-schema-com-scd-tipo-2) | Modelagem C — star schema SCD2 → produz `N₃` | [19](#passo-19) · [20](#passo-20) · [21](#passo-21) · [22](#passo-22) · [23](#passo-23) · [24](#passo-24) · [25](#passo-25) | ~20 min |
+| [Parte 5](#parte-5---comparando-os-três-resultados) | Compara `N₁`, `N₂`, `N₃` e escreve `DECISION.md` | [26](#passo-26) · [27](#passo-27) · [28](#passo-28) | ~10 min |
+
+> [!TIP]
+> Se travou em algum passo, você pode pular direto: clique no número do passo na coluna **Passos** acima.
 
 <details>
 <summary><b>💡 Não viu a aula ainda? O que é um Data Warehouse em 3 parágrafos</b></summary>
@@ -354,6 +357,10 @@ flowchart LR
 
 Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de consultas do console AWS, com o banco `dw_mba` selecionado e pronto para receber comandos SQL.
 
+---
+
+<a id="passo-1"></a>
+
 1. Abra o [console do Amazon Redshift Query Editor v2](https://us-east-1.console.aws.amazon.com/sqlworkbench/home?region=us-east-1#/client).
 
 <!-- PRINT SUGERIDO: img/redshift_query_editor_landing.png
@@ -361,12 +368,20 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
      Captura a janela inteira do browser com o editor ainda sem conexão feita. -->
 ![](img/redshift_query_editor_landing.png)
 
+---
+
+<a id="passo-2"></a>
+
 2. Clique com o botão direito no cluster `dw-aula3-<SHORT_ID>` e escolha **Create connection**.
 
 <!-- PRINT SUGERIDO: img/redshift_create_connection.png
      Menu de contexto aberto no cluster, destacando a opção "Create connection".
      Use zoom na árvore lateral esquerda para o cluster + menu aparecerem juntos. -->
 ![](img/redshift_create_connection.png)
+
+---
+
+<a id="passo-3"></a>
 
 3. Na caixa de autenticação, escolha **Database user name and password** e preencha:
    - Database: `dw_mba`
@@ -377,6 +392,10 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
      Caixa de autenticação preenchida (com a senha coberta/borrada).
      Mostra os 3 campos: Database, Username, Password. -->
 ![](img/redshift_connection_form.png)
+
+---
+
+<a id="passo-4"></a>
 
 4. Teste a conexão executando:
 
@@ -416,6 +435,10 @@ Se você chegou até aqui, então:
 ### Resultado esperado desta parte
 
 Ao final desta parte, as 8 tabelas do TPC-H estarão criadas no schema `oltp_mirror` e carregadas via `COPY FROM S3`. A query-âncora terá produzido o **primeiro número (`N₁`)** — o número que respondemos para Marina na primeira tentativa.
+
+---
+
+<a id="passo-5"></a>
 
 5. Crie o schema e as 8 tabelas TPC-H. Este schema reproduz o modelo relacional operacional, sem qualquer transformação analítica:
 
@@ -555,6 +578,10 @@ Documentação oficial:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-6"></a>
+
 6. Antes de carregar dados, descubra seu Account ID para montar a URL do S3:
 
 ```sql
@@ -564,6 +591,10 @@ SELECT current_user_id() AS user, current_aws_account() AS account_id;
 <!-- PRINT SUGERIDO: img/redshift_account_id.png
      Resultado da query mostrando o account_id. Usuário vai copiar esse valor para os próximos COPY. -->
 ![](img/redshift_account_id.png)
+
+---
+
+<a id="passo-7"></a>
 
 7. Carregue as 8 tabelas usando `COPY FROM S3`. **Em todos os blocos abaixo, substitua `<SEU_ACCOUNT_ID>` pelo valor obtido no passo 6**. Dividimos em 3 lotes: pequenas → médias → grandes (fatos). Rode e valide cada lote antes de seguir — é mais fácil descobrir qual tabela falhou se algo der errado.
 
@@ -588,6 +619,13 @@ STATUPDATE OFF;
 SELECT 'region' AS tbl, COUNT(*) AS linhas FROM oltp_mirror.region
 UNION ALL SELECT 'nation', COUNT(*) FROM oltp_mirror.nation;
 ```
+
+<!-- PRINT SUGERIDO: img/copy_lote_1_sucesso.png
+     Mensagens dos 2 COPYs ("INFO: Load into table 'region' completed, 5
+     record(s) loaded...") + resultado do checkpoint mostrando region=5,
+     nation=25. Primeiro COPY do lab — aluno reconhece o padrao para os
+     proximos 7. -->
+![](img/copy_lote_1_sucesso.png)
 
 **Lote 2/3 — mestres (médio, 4 tabelas, até 800k linhas):**
 
@@ -687,6 +725,10 @@ Documentação oficial:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-8"></a>
+
 8. Atualize as estatísticas do otimizador (passo rápido mas importante para os planos subsequentes):
 
 ```sql
@@ -699,6 +741,10 @@ ANALYZE oltp_mirror.partsupp;
 ANALYZE oltp_mirror.orders;
 ANALYZE oltp_mirror.lineitem;
 ```
+
+---
+
+<a id="passo-9"></a>
 
 9. Confirme que os volumes batem com o TPC-H SF10. **Essa é sua primeira âncora de confiança** — se os números aqui não batem, **não siga adiante**. Qualquer divergência na query-âncora (passo 10) vai ser causada por problema aqui, e você gasta 20 minutos debugando a query para descobrir que a carga falhou:
 
@@ -749,6 +795,10 @@ Se o bucket estiver vazio, volte para o Lab 03.1 e rode `bash scripts/load_tpch.
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-10"></a>
 
 10. Execute a query-âncora pela primeira vez, no modelo OLTP:
 
@@ -822,6 +872,10 @@ Se você chegou até aqui, então:
 
 Ao final desta parte, o schema `dw_star` terá 5 dimensões (`dim_data`, `dim_customer`, `dim_produto`, `dim_supplier`, `dim_geografia`) e uma fato (`f_vendas`), todas com surrogate keys e estratégia física adequada. A query-âncora terá produzido **`N₂`** — o número que o time de BI está mostrando no dashboard novo.
 
+---
+
+<a id="passo-11"></a>
+
 11. Crie o schema:
 
 ```sql
@@ -849,6 +903,10 @@ Em um warehouse real, o grain fica documentado no catálogo de dados, no dbt `de
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-12"></a>
 
 12. Crie e popule a `dim_data`, cobrindo 1992-01-01 a 1998-12-31:
 
@@ -897,6 +955,10 @@ FROM datas;
 
 ANALYZE dw_star.dim_data;
 ```
+
+---
+
+<a id="passo-13"></a>
 
 13. Valide que a dimensão foi populada corretamente:
 
@@ -972,7 +1034,13 @@ O restante das colunas do `INSERT` permanece igual.
 </blockquote>
 </details>
 
+---
+
+<a id="passo-14"></a>
+
 14. Crie e popule as 4 dimensões restantes, **uma por vez**. Valide o retorno do `SELECT COUNT(*)` de cada antes de seguir para a próxima — é comum esquecer de rodar o `INSERT` depois do `CREATE`.
+
+<a id="passo-14a"></a>
 
 **14a · `dim_geografia`** — achata `nation + region` em uma única tabela (star classic, não snowflake):
 
@@ -1000,6 +1068,8 @@ ANALYZE dw_star.dim_geografia;
 -- Checkpoint: esperado 25 linhas (25 nações, cada uma referenciando 1 de 5 regiões)
 SELECT COUNT(*) AS linhas FROM dw_star.dim_geografia;
 ```
+
+<a id="passo-14b"></a>
 
 **14b · `dim_customer` (SCD Tipo 1)** — sobrescreve o segmento atual:
 
@@ -1030,6 +1100,8 @@ ANALYZE dw_star.dim_customer;
 -- Checkpoint: esperado 1.500.000 linhas (1:1 com oltp_mirror.customer)
 SELECT COUNT(*) AS linhas FROM dw_star.dim_customer;
 ```
+
+<a id="passo-14c"></a>
 
 **14c · `dim_produto`** — achata `part` com atributos descritivos:
 
@@ -1066,6 +1138,8 @@ ANALYZE dw_star.dim_produto;
 -- Checkpoint: esperado 2.000.000 linhas
 SELECT COUNT(*) AS linhas FROM dw_star.dim_produto;
 ```
+
+<a id="passo-14d"></a>
 
 **14d · `dim_supplier`**:
 
@@ -1126,6 +1200,10 @@ Quando a dimensão normalizada é **gigante** (milhões de linhas com hierarquia
 </blockquote>
 </details>
 
+---
+
+<a id="passo-15"></a>
+
 15. Confirme contagens:
 
 ```sql
@@ -1147,6 +1225,10 @@ Esperado: dim_data=2557, dim_geografia=25, dim_customer=1500000, dim_produto=200
      Resultado das 5 dimensões com contagem correspondente.
      Evidência de que o CTAS das dimensões funcionou. -->
 ![](img/dw_star_dims_loaded.png)
+
+---
+
+<a id="passo-16"></a>
 
 16. Crie e carregue a tabela fato `f_vendas`:
 
@@ -1237,6 +1319,10 @@ Na fato criamos três colunas de receita calculadas:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-17"></a>
+
 17. Execute a query-âncora no star schema:
 
 ```sql
@@ -1261,6 +1347,10 @@ ORDER BY receita_liquida_1995_automobile DESC;
 
 > [!TIP]
 > **Anote o valor de `AMERICA` como `N₂`**. Compare com `N₁` — eles devem ser praticamente iguais (pequenas diferenças de arredondamento são esperadas).
+
+---
+
+<a id="passo-18"></a>
 
 18. Compare os planos de execução OLTP vs. Star para sentir a diferença estrutural:
 
@@ -1326,6 +1416,10 @@ Se você chegou até aqui, então:
 
 Ao final desta parte, o schema `dw_star_scd2` terá uma `dim_customer` versionada com histórico de segmento e uma fato `f_vendas` apontando para a versão vigente na data de cada pedido. A query-âncora vai produzir **`N₃`**, **diferente** de `N₁` e `N₂` — e a diferença é o que vamos discutir com Marina.
 
+---
+
+<a id="passo-19"></a>
+
 19. Crie o schema e carregue a tabela auxiliar `customer_history`. Essa tabela foi gerada sinteticamente pelo `load_tpch.sh` e contém reclassificações de segmento pós-1995 em **exatamente ~75.000 clientes** (5% da base SF10 de 1,5M, amostragem determinística com seed `42` — todo aluno obtém o mesmo conjunto):
 
 ```sql
@@ -1341,6 +1435,10 @@ CREATE TABLE dw_star_scd2.customer_history (
 DISTSTYLE AUTO
 SORTKEY (c_custkey);
 ```
+
+---
+
+<a id="passo-20"></a>
 
 20. Carregue a `customer_history` (lembre-se de substituir `<SEU_ACCOUNT_ID>`):
 
@@ -1362,6 +1460,10 @@ O resultado esperado é **exatamente ~75.000 linhas** (5% de 1,5M clientes, seed
 <!-- PRINT SUGERIDO: img/customer_history_loaded.png
      Resultado mostrando ~75.000 reclassificações carregadas. -->
 ![](img/customer_history_loaded.png)
+
+---
+
+<a id="passo-21"></a>
 
 21. Crie a `dim_customer` versionada. Ela terá uma linha para clientes sem histórico e duas linhas para os reclassificados (versão original + versão nova):
 
@@ -1465,6 +1567,10 @@ O cliente 42 foi reclassificado em 1996-08-15. O cliente 43 nunca mudou.
 </blockquote>
 </details>
 
+---
+
+<a id="passo-22"></a>
+
 22. Valide a integridade da `dim_customer` versionada com três checks:
 
 ```sql
@@ -1502,6 +1608,10 @@ Os checks 1 e 2 devem retornar **0**. O check 3 deve mostrar 1,5M clientes, ~1,5
 <!-- PRINT SUGERIDO: img/scd2_integrity_checks.png
      Os 3 checks com os resultados corretos. O 0+0 nos dois primeiros é a evidência de que a SCD2 foi construída certinho. -->
 ![](img/scd2_integrity_checks.png)
+
+---
+
+<a id="passo-23"></a>
 
 23. Crie e carregue a fato `f_vendas` apontando para a versão correta do cliente em cada data. O segredo aqui é o **join com range temporal**:
 
@@ -1598,6 +1708,10 @@ Muitos warehouses produtivos encapsulam esse join em uma **view** que esconde a 
 </blockquote>
 </details>
 
+---
+
+<a id="passo-24"></a>
+
 24. Confirme que a fato tem o mesmo grain da B (59.986.052 linhas):
 
 ```sql
@@ -1605,6 +1719,10 @@ SELECT COUNT(*) AS linhas FROM dw_star_scd2.f_vendas;
 ```
 
 Se vier menos, algum pedido não encontrou versão vigente do cliente — isso indicaria bug na construção da SCD2.
+
+---
+
+<a id="passo-25"></a>
 
 25. Execute a query-âncora pela terceira vez, agora no modelo SCD2:
 
@@ -1652,6 +1770,10 @@ Se você chegou até aqui, então:
 
 Ao final desta parte, você terá colocado os 3 números lado a lado, entendido por que divergem, e preenchido um documento de decisão simulando um entregável real de engenharia.
 
+---
+
+<a id="passo-26"></a>
+
 26. Monte a tabela comparativa com os valores que você anotou:
 
 | Modelagem | Receita AUTOMOBILE 1995 (AMERICA) | Fonte do segmento | Relação esperada |
@@ -1662,6 +1784,17 @@ Ao final desta parte, você terá colocado os 3 números lado a lado, entendido 
 
 > [!NOTE]
 > **Calibração**: TPC-H SF10 é determinístico e `customer_history` é gerada com seed `42` — qualquer pessoa do curso que rodar os mesmos passos chega nos **mesmos 3 números**. Compare com um colega; se `N₁` diferir, tem erro de carga. Se `N₂ ≠ N₁`, tem bug no upsert SCD1. Se `N₃ = N₁`, o SCD2 não está usando o range temporal no JOIN.
+
+<!-- PRINT SUGERIDO: img/decision_md_preenchido.png
+     Print da pagina do DECISION.md aberto no editor com os 3 numeros
+     N1, N2, N3 preenchidos (AMERICA destacado em cada). Vira o "antes/
+     depois" tangivel — aluno enxerga o entregavel real que vai para
+     Marina. -->
+![](img/decision_md_preenchido.png)
+
+---
+
+<a id="passo-27"></a>
 
 27. Rode esta query bônus para ver quantos clientes foram reclassificados no "para dentro" ou "para fora" de `AUTOMOBILE`. Isso quantifica a divergência:
 
@@ -1699,6 +1832,10 @@ Ambas as perguntas são legítimas. Ambas aparecem em reuniões reais. A diferen
 
 > [!IMPORTANT]
 > O trabalho do engenheiro de dados não é escolher sozinho entre `N₁`, `N₂` e `N₃`. É tornar as duas perguntas **distinguíveis**, **conversáveis** e **auditáveis**. Uma modelagem bem feita permite expor as duas lado a lado, com nomes explícitos e contratos claros.
+
+---
+
+<a id="passo-28"></a>
 
 28. **Marina entra na reunião com o conselho daqui a pouco**. Você precisa entregar a ela um documento curto e objetivo justificando qual número ela apresenta. No terminal do Codespaces, copie o template e preencha:
 
