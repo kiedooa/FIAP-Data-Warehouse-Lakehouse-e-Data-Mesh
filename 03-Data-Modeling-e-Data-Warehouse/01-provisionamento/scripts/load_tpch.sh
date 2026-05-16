@@ -26,9 +26,23 @@ command -v aws >/dev/null || { echo "ERRO: aws CLI não encontrado"; exit 1; }
 command -v terraform >/dev/null || { echo "ERRO: terraform não encontrado"; exit 1; }
 command -v python3 >/dev/null || { echo "ERRO: python3 não encontrado"; exit 1; }
 
-python3 -c "import pandas, pyarrow" 2>/dev/null || {
-  echo ">> Instalando pandas + pyarrow..."
-  pip install --quiet --user pandas pyarrow
+# venv local: isola pandas/pyarrow do Python do sistema. Funciona igual em
+# Codespaces (Ubuntu) e Mac, e sobrevive a Python do Homebrew quebrado.
+VENV_DIR="${TF_DIR}/.venv"
+if [[ ! -d "${VENV_DIR}" ]]; then
+  echo ">> Criando venv em ${VENV_DIR}..."
+  python3 -m venv "${VENV_DIR}" || {
+    echo "ERRO: 'python3 -m venv' falhou. No Ubuntu rode: sudo apt-get install -y python3-venv"
+    exit 1
+  }
+fi
+# shellcheck disable=SC1091
+source "${VENV_DIR}/bin/activate"
+
+python -c "import pandas, pyarrow" 2>/dev/null || {
+  echo ">> Instalando pandas + pyarrow no venv..."
+  python -m pip install --quiet --upgrade pip
+  python -m pip install --quiet pandas pyarrow
 }
 
 # -----------------------------------------------------------------------------
@@ -36,9 +50,9 @@ python3 -c "import pandas, pyarrow" 2>/dev/null || {
 # -----------------------------------------------------------------------------
 cd "${TF_DIR}"
 
-if [[ ! -f terraform.tfstate ]]; then
-  echo "ERRO: terraform.tfstate não encontrado em ${TF_DIR}"
-  echo "      Rode 'terraform init && terraform apply' antes deste script."
+if ! terraform output -raw s3_bucket_name >/dev/null 2>&1; then
+  echo "ERRO: outputs do Terraform indisponiveis em ${TF_DIR}"
+  echo "      Rode 'bash scripts/init.sh && terraform apply' antes deste script."
   exit 1
 fi
 
@@ -83,7 +97,7 @@ done
 echo ""
 echo ">> Convertendo para Parquet (snappy)..."
 
-python3 - <<'PYEOF'
+python - <<'PYEOF'
 import os
 import sys
 import pandas as pd
@@ -233,7 +247,7 @@ export WORK_DIR
 echo ""
 echo ">> Gerando customer_history (reclassificações sintéticas)..."
 
-python3 - <<'PYEOF'
+python - <<'PYEOF'
 import os
 import random
 import pandas as pd
