@@ -1,12 +1,15 @@
-# Decisão de modelagem — Lab 03.1
+# Decisão de modelagem — Receita AUTOMOBILE 1995 por região
 
-> Copie este arquivo para `DECISION.md` na mesma pasta e preencha. Ele simula um ADR (Architecture Decision Record) real — documento curto que registra uma escolha técnica com contexto, alternativas e consequências.
+> Documento entregue à diretora financeira **Marina** da TPCH Trading antes da reunião do conselho. Simula um ADR (Architecture Decision Record) real — documento curto que registra uma escolha técnica com contexto, alternativas e consequências.
+>
+> **Como usar**: copie este arquivo para `DECISION.md` na mesma pasta e preencha enquanto avança no Lab 03.2. Os campos `N₁`, `N₂`, `N₃` são preenchidos ao final de cada Parte 2, 3, 4. A justificativa final é escrita na Parte 5.
 
 ---
 
 ## Autor e data
 
-- **Aluno**: _______
+- **Engenheiro de dados**: _______ (você)
+- **Stakeholder**: Marina (CFO, TPCH Trading)
 - **RM**: _______
 - **Data**: AAAA-MM-DD
 
@@ -14,9 +17,9 @@
 
 ## Contexto
 
-Descreva em 3-5 linhas a pergunta de negócio que motivou a modelagem e o que se sabe sobre o dado disponível.
+Descreva em 3-5 linhas a pergunta de negócio que Marina te trouxe e o que se sabe sobre o dado disponível.
 
-_(exemplo: "Precisamos responder 'receita líquida por segmento de cliente × região × ano'. Os dados vêm do ERP com reclassificações de segmento que acontecem esporadicamente. O histórico de classificações está em uma tabela separada.")_
+_(exemplo: "Marina pediu a receita líquida do segmento AUTOMOBILE em 1995 por região para a apresentação do conselho. Os dados vêm do ERP onde reclassificações de segmento acontecem esporadicamente. A `customer_history` registra 75k clientes que mudaram de segmento entre 1996 e 1998 — depois do recorte da pergunta.")_
 
 ---
 

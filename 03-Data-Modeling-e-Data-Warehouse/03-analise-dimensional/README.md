@@ -1,16 +1,51 @@
-# 03.2 - Evolução do negócio: quando a modelagem tem que mudar
+# 03.3 - Evolução do negócio: quando a modelagem tem que mudar
 
-**Antes de começar, execute os passos abaixo para configurar o ambiente caso não tenha feito isso ainda na aula de HOJE: [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)**
+> **6 meses depois do Lab 03.2.**
+>
+> O `DECISION.md` que escrevemos juntos foi aprovado. O DW da TPCH Trading entrou em produção. Por 4 meses, ninguém liga para o engenheiro de dados — sinal verde. Aí, num único trimestre, **três pessoas batem na sua porta**:
+>
+> - **Marina (CFO)**: *"Janeiro: começamos a vender em marketplaces. Eles cobram comissão variável por fornecedor. Quero que a receita líquida que eu reporto reflita isso. Mas e os relatórios que já publiquei? Vão mudar de número?"*
+>
+> - **Lucas (CMO)**: *"Março: definição antiga de 'cliente ativo' está obsoleta. Quero ranking mensal: ativo é quem comprou nos últimos 12 meses **e** tem saldo aceitável. Funciona?"*
+>
+> - **CEO**: *"Maio: o dashboard executivo que vocês fizeram demora 20 segundos para abrir. Inaceitável. SLA de 5 segundos até sexta-feira."*
+>
+> Três demandas, três tipos de pressão (financeira, comercial, executiva), três decisões de modelagem diferentes. Vamos atacar uma de cada vez — **na ordem em que chegaram** — porque é como acontece na vida real: você nunca decide tudo de uma vez, você reage a uma coisa, sente a consequência, e aí encara a próxima.
 
-**Este laboratório assume que o schema `dw_star` existe e está populado** (fato `f_vendas`, dimensões `dim_customer` com SCD1, `dim_produto`, `dim_supplier`, `dim_geografia`, `dim_data`). Se você ainda não fez o [Lab 03.1](../02-modelagem-e-carga/README.md), volte e execute a Parte 3 dele. As queries deste lab consultam `dw_star.*` diretamente.
+Este laboratório é o que acontece nesse trimestre. Vamos sentir na prática por que **modelagem raramente sobrevive inalterada de um trimestre para o outro**. Cada evolução de negócio é aplicada sobre o star schema do Lab 03.2, e cada uma força uma decisão de redesign.
 
-Neste laboratório, você sente na prática por que a modelagem raramente sobrevive inalterada de um trimestre para o outro. Três evoluções de negócio são aplicadas sobre o star schema do Lab 03.1, e cada uma força uma decisão de redesign.
+> [!WARNING]
+> **Pré-requisitos obrigatórios antes de começar:**
+>
+> - [ ] Credenciais AWS do Academy atualizadas no Codespaces — ver [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)
+> - [ ] Cluster Redshift `dw-aula3-<short_id>` em status `available` (Lab [03.1 · Provisionamento](../01-provisionamento/README.md) executado)
+> - [ ] Schema `dw_star` populado com o star schema SCD Tipo 1 (Lab [03.1 · Parte 3](../02-modelagem-e-carga/README.md#parte-3---modelagem-b-star-schema-com-scd-tipo-1) inteira executada)
+> - [ ] Você consegue conectar no Query Editor v2 ou via psql no Codespaces
+>
+> **Valide rapidamente rodando esta query no Query Editor v2 antes de prosseguir:**
+>
+> ```sql
+> SELECT COUNT(*) AS linhas_fato FROM dw_star.f_vendas;
+> -- Esperado: 59986052
+> ```
+>
+> Se retornar `relation "dw_star.f_vendas" does not exist` ou `0 linhas`, volte ao Lab 03.2 e complete a Parte 3 antes de seguir aqui.
+
+## O que você vai fazer
+
+3 evoluções de negócio aplicadas sobre o `dw_star` existente, sem recarregar dados do zero. Tempo estimado: **70–90 min** em cluster `ra3.large` × 2 nós (execução pura ~5 min + tempo para você ler os blocos `<details>`, observar resultados das queries-alvo e refletir nas perguntas discursivas).
+
+- **Evolução 1** — Nova fórmula de receita com comissão de marketplace (Views + Materialized Views versionadas)
+- **Evolução 2** — Redefinição de "cliente ativo" (SCD Tipo 2 × fato snapshot periódico)
+- **Evolução 3** — SLA de 5s no dashboard executivo (redesign de DISTKEY × MV pré-agregada)
+- **Reflexão final** — 4 perguntas discursivas para fechar o raciocínio
+- **Destruição da infra** — `terraform destroy` obrigatório ao final
 
 ## Arquitetura
 
 ![Arquitetura das três evoluções](img/arquitetura-03-2.png)
 
-O diagrama resume: partindo do `dw_star` consolidado no Lab 03.1 (coluna da esquerda), três evoluções de negócio chegam no mesmo trimestre. Cada linha mostra a sequência **dor de negócio → solução técnica → decisão pedagógica**: Evolução 1 acrescenta comissão na receita (views + MV versionadas), Evolução 2 redefine "cliente ativo" (SCD2 vs. fato snapshot periódico), Evolução 3 exige SLA de 5s (redesign de distkey vs. MV pré-agregada). A faixa final sintetiza as quatro perguntas da reflexão do lab.
+O diagrama resume: partindo do `dw_star` consolidado no Lab 03.2 (coluna da esquerda), três evoluções de negócio chegam no mesmo trimestre. Cada linha mostra a sequência **dor de negócio → solução técnica → decisão pedagógica**: Evolução 1 acrescenta comissão na receita (views + MV versionadas), Evolução 2 redefine "cliente ativo" (SCD2 vs. fato snapshot periódico), Evolução 3 exige SLA de 5s (redesign de distkey vs. MV pré-agregada). A faixa final sintetiza as quatro perguntas da reflexão do lab.
 
 Fonte editável: [`img/arquitetura-03-2.drawio`](img/arquitetura-03-2.drawio).
 
@@ -30,17 +65,47 @@ Ao final deste laboratório, você terá aplicado três evoluções de negócio 
 > [!TIP]
 > Sempre que encontrar um bloco com o título **💡 Clique para entender**, abra esse trecho. Ele traz explicação detalhada do comando, contexto prático da aula e links oficiais para aprofundamento.
 
+## Mapa do lab
+
+| Parte | O que você faz | Passos | Tempo |
+|-------|----------------|--------|-------|
+| [Parte 1](#parte-1---preparação-e-validação-do-ambiente) | Valida o cluster + schema do Lab 03.2 | [1](#passo-1) · [2](#passo-2) | ~5 min |
+| [Parte 2](#parte-2---evolução-1-nova-fórmula-de-receita) | Evolução 1 — nova fórmula de receita (v1 vs v2) | [3](#passo-3) · [4](#passo-4) · [5](#passo-5) · [6](#passo-6) · [7](#passo-7) · [8](#passo-8) · [9](#passo-9) · [10](#passo-10) | ~20 min |
+| [Parte 3](#parte-3---evolução-2-redefinição-de-cliente-ativo) | Evolução 2 — redefinir "cliente ativo" (SCD2 vs snapshot) | [11](#passo-11) · [12](#passo-12) · [13](#passo-13) · [14](#passo-14) · [15](#passo-15) · [16](#passo-16) · [17](#passo-17) · [18](#passo-18) · [19](#passo-19) | ~25 min |
+| [Parte 4](#parte-4---evolução-3-sla-de-5s-no-dashboard-executivo) | Evolução 3 — SLA de 5s (EXPLAIN + MV + redesign) | [20](#passo-20) · [21](#passo-21) · [22](#passo-22) · [23](#passo-23) · [24](#passo-24) · [25](#passo-25) · [26](#passo-26) · [27](#passo-27) · [28](#passo-28) | ~25 min |
+| [Parte 5](#parte-5---reflexão-final) | Reflexão final escrita | (4 perguntas discursivas) | ~10 min |
+| [Parte 6](#parte-6---destruindo-a-infraestrutura-ao-final-da-aula) | `terraform destroy` | (sem passos numerados) | ~8 min |
+
+> [!TIP]
+> Se travou em algum passo, você pode pular direto: clique no número do passo na coluna **Passos** acima.
+
 ---
 
 ## Contexto
 
-Estamos em 1998, continuidade da narrativa do Lab 03.1. A empresa cresceu, e três demandas simultâneas chegam ao time de dados no mesmo trimestre:
+A linha do tempo do trimestre, com Marina, Lucas e o CEO entrando em cena cada um na sua hora:
 
-1. **Marketplace**: abrimos vendas em marketplaces que cobram comissão variável por fornecedor. Finanças quer recalcular a receita líquida considerando essa comissão.
-2. **CRM**: o time de marketing quer redefinir "cliente ativo" — não é mais "quem comprou alguma vez", é "quem comprou nos últimos 12 meses **e** tem saldo aceitável".
-3. **Executivo**: o CEO cria um dashboard recorrente de receita por região × mês × segmento e exige SLA de **5 segundos**. Hoje a query leva ~20s.
+```
+JAN ────► MAR ────► MAI
+ │         │         │
+ ▼         ▼         ▼
+Marina    Lucas    CEO
+(CFO)     (CMO)    (executivo)
 
-Vamos atacar uma evolução de cada vez.
+Comissão  Cliente  SLA 5s
+de        ativo    no
+marketplace        dashboard
+```
+
+Cada evolução **muda o significado dos números** ou **muda como o dashboard performa**. E cada uma força uma decisão arquitetural diferente:
+
+| Evolução | Tipo de mudança | Decisão central |
+|----------|-----------------|-----------------|
+| **1 — Marina (jan)** | Métrica que muda de fórmula | Recalcular histórico OU congelar a versão antiga? |
+| **2 — Lucas (mar)** | Atributo dimensional que evolui no tempo | SCD2 OU fato snapshot periódico? |
+| **3 — CEO (mai)** | Performance do consumo | Redesign físico OU pré-agregar? |
+
+Vamos atacar uma evolução de cada vez, na ordem em que chegaram.
 
 ---
 
@@ -48,7 +113,11 @@ Vamos atacar uma evolução de cada vez.
 
 ### Resultado esperado desta parte
 
-Ao final desta etapa, você estará conectado ao Redshift com `dw_star` acessível, e terá confirmado que os objetos do Lab 03.1 continuam disponíveis.
+Ao final desta etapa, você estará conectado ao Redshift com `dw_star` acessível, e terá confirmado que os objetos do Lab 03.2 continuam disponíveis.
+
+---
+
+<a id="passo-1"></a>
 
 1. No Redshift Query Editor v2, confirme que o schema `dw_star` existe e tem as tabelas esperadas:
 
@@ -65,8 +134,12 @@ ORDER BY tablename;
 O resultado deve conter `dim_customer`, `dim_data`, `dim_geografia`, `dim_produto`, `dim_supplier`, `f_vendas`.
 
 <!-- PRINT SUGERIDO: img/dw_star_tables_ok.png
-     Listagem das 6 tabelas do dw_star. Se faltar alguma, o aluno precisa voltar ao Lab 03.1. -->
+     Listagem das 6 tabelas do dw_star. Se faltar alguma, o aluno precisa voltar ao Lab 03.2. -->
 ![](img/dw_star_tables_ok.png)
+
+---
+
+<a id="passo-2"></a>
 
 2. Confirme que `f_vendas` tem o volume correto:
 
@@ -74,19 +147,36 @@ O resultado deve conter `dim_customer`, `dim_data`, `dim_geografia`, `dim_produt
 SELECT COUNT(*) AS linhas FROM dw_star.f_vendas;
 ```
 
-Esperado: **6.001.215** linhas.
+Esperado: **59.986.052** linhas.
 
 ### Checkpoint
 
-Se você chegou até aqui, então o ambiente do Lab 03.1 está preservado e podemos começar as evoluções.
+Se você chegou até aqui, então o ambiente do Lab 03.2 está preservado e podemos começar as evoluções.
 
 ---
 
 ## Parte 2 - Evolução 1: nova fórmula de receita
 
+> **Janeiro. Marina manda um e-mail**: *"Os marketplaces começaram a cobrar comissão variável (3% a 12%) por fornecedor. A receita líquida que eu reporto **precisa** descontar isso a partir de agora. Mas tenho um problema: já publiquei 6 trimestres de relatório com a fórmula antiga. Se eu mudar retroativamente, perco a comparabilidade. Como você resolve?"*
+>
+> Esta evolução **não é técnica, é semântica**: a fórmula da métrica mudou. Vamos discutir juntos a estratégia de versionar fórmulas (v1 e v2 coexistindo) em vez de sobrescrever.
+
+### Por que essa evolução existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | Métrica financeira (receita líquida) muda de fórmula. Decisão sensível: recalcular histórico OU congelar versão antiga? Bater meta de 1996, contrato de bônus, comparativo público — tudo depende do número antigo. |
+| **Pergunta que essa evolução responde** | *"Como exponho duas fórmulas simultaneamente sem quebrar nada do que já está em produção?"* |
+| **Pergunta que essa evolução **não** resolve** | *"Qual fórmula está certa?"* — não há resposta universal. O lab te ensina a tornar essa decisão **explícita** e **documentada**, não a tomar a decisão por você. |
+| **Quando acontece na vida real** | Toda vez que uma métrica de KPI corporativo precisa mudar — comissionamento, regra contábil, redefinição de cohort. É uma das fontes de conflito mais comuns entre engenharia e finanças. |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, a `dim_supplier` terá uma coluna `pct_comissao`, existirão duas views de receita (v1 com a fórmula antiga, v2 com a nova), e uma Materialized View com `AUTO REFRESH` pré-agregará a v2 por ano × mês × região × segmento.
+Ao final desta parte, a `dim_supplier` terá uma coluna `pct_comissao`, existirão duas views de receita (v1 com a fórmula antiga, v2 com a nova), e uma Materialized View com `AUTO REFRESH` pré-agregará a v2 por ano × mês × região × segmento.
+
+---
+
+<a id="passo-3"></a>
 
 3. Acrescente o atributo `pct_comissao` em `dim_supplier`. Para fins didáticos, a comissão é determinística (entre 3% e 12%) baseada em `s_suppkey`:
 
@@ -99,6 +189,10 @@ SET pct_comissao = ROUND( (((s_suppkey % 10) + 3) * 1.0 / 100), 4 );
 
 ANALYZE dw_star.dim_supplier;
 ```
+
+---
+
+<a id="passo-4"></a>
 
 4. Valide a distribuição das comissões:
 
@@ -113,7 +207,7 @@ ORDER BY pct_comissao;
 
 <!-- PRINT SUGERIDO: img/pct_comissao_distribuicao.png
      Tabela com comissões de 0.03 a 0.12 e a quantidade de fornecedores em cada faixa.
-     Deve dar ~1000 fornecedores por faixa (total 10000, 10 faixas). -->
+     Deve dar ~10000 fornecedores por faixa (total 100000, 10 faixas). -->
 ![](img/pct_comissao_distribuicao.png)
 
 <details>
@@ -137,6 +231,10 @@ Documentação oficial:
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-5"></a>
 
 5. Crie a view v1 (fórmula antiga preservada) e a view v2 (nova fórmula com comissão):
 
@@ -172,6 +270,10 @@ SELECT
 FROM dw_star.f_vendas     f
 JOIN dw_star.dim_supplier s ON s.supplier_sk = f.supplier_sk;
 ```
+
+---
+
+<a id="passo-6"></a>
 
 6. Compare os totais para ver o impacto da comissão:
 
@@ -215,6 +317,10 @@ Documentação oficial:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-7"></a>
+
 7. Crie a Materialized View da v2 para consumo recorrente em dashboards:
 
 ```sql
@@ -242,18 +348,22 @@ GROUP BY d.nr_ano, d.nr_mes, g.nm_regiao, c.sg_segmento;
 REFRESH MATERIALIZED VIEW dw_star.mv_receita_liquida_v2_mensal;
 ```
 
+---
+
+<a id="passo-8"></a>
+
 8. Veja o status da MV:
 
 ```sql
 SELECT
-    schemaname,
+    schema_name,
     name,
     is_stale,
     autorefresh,
     state
 FROM svv_mv_info
-WHERE schemaname = 'dw_star'
-  AND name       = 'mv_receita_liquida_v2_mensal';
+WHERE schema_name = 'dw_star'
+  AND name        = 'mv_receita_liquida_v2_mensal';
 ```
 
 <!-- PRINT SUGERIDO: img/mv_status_ok.png
@@ -311,6 +421,10 @@ Documentação oficial:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-9"></a>
+
 9. Meça o impacto da nova fórmula por ano (análise pedagógica):
 
 ```sql
@@ -341,6 +455,10 @@ ORDER BY v1.nr_ano;
      Tabela ano a ano com receita_v1, receita_v2 e a diferença percentual.
      Destaca que a diferença é relativamente estável (~7-8% em todos os anos). -->
 ![](img/v1_v2_por_ano.png)
+
+---
+
+<a id="passo-10"></a>
 
 10. Compare a performance de buscar receita via view vs. MV:
 
@@ -394,9 +512,22 @@ Se você chegou até aqui, então:
 
 ## Parte 3 - Evolução 2: redefinição de "cliente ativo"
 
+> **Março. Lucas (CMO) chama na sala**: *"O conceito 'cliente ativo' que vocês usam está errado para mim. Preciso de algo mais sofisticado: ativo é quem **comprou nos últimos 12 meses** E **tem saldo aceitável** (não está endividado). Eu quero ver isso evoluir mês a mês — quantos ativos eu tinha em janeiro? Em fevereiro? Em qualquer mês de 1997?"*
+>
+> Esta evolução tem uma decisão de modelagem clássica: **modelar `is_active` como atributo de uma dimensão SCD2** (variável no tempo) ou **modelar como fato snapshot periódico** (1 linha por cliente × mês). Cada uma brilha em perguntas diferentes. Vamos construir as duas e ver na prática.
+
+### Por que essa evolução existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | Atributo de cliente que **muda no tempo** (status ativo/inativo) e o time de marketing precisa **série temporal** desse atributo — não basta saber o estado atual. |
+| **Pergunta que essa evolução responde** | *"Quando modelo um atributo dimensional volátil, uso SCD2 (atributo na dimensão) ou um fato snapshot (atributo no fato)?"* |
+| **Decisão central** | SCD2 é melhor para *"qual era o status em uma data específica?"*. Fato snapshot é melhor para *"qual a evolução mês a mês?"*. **As duas existem porque resolvem problemas diferentes.** |
+| **Quando acontece na vida real** | Status de cliente (ativo/churn), tier de fidelidade (bronze/prata/ouro), nível de risco de crédito, classificação ABC de produtos. Em fintech, em e-commerce, em telecom. |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, você terá implementado o conceito "cliente ativo" de duas formas diferentes — como atributo SCD Tipo 2 em `dim_customer_v2` e como fato snapshot periódico `f_customer_status_mensal` — e comparado onde cada abordagem brilha ou sofre.
+Ao final desta parte, você terá implementado o conceito "cliente ativo" de **duas formas diferentes** — como atributo SCD Tipo 2 em `dim_customer_v2` e como fato snapshot periódico `f_customer_status_mensal` — e comparado onde cada abordagem brilha ou sofre.
 
 ### A regra de negócio
 
@@ -405,6 +536,10 @@ cliente ativo = comprou nos últimos 12 meses E saldo > -5000
 ```
 
 ### Opção A — SCD Tipo 2 em dim_customer_v2
+
+---
+
+<a id="passo-11"></a>
 
 11. Crie a dimensão versionada. Esta abordagem modela `is_active` como um **atributo** do cliente que varia com o tempo:
 
@@ -425,6 +560,10 @@ DISTKEY (c_custkey)
 SORTKEY (c_custkey, valid_from);
 ```
 
+---
+
+<a id="passo-12"></a>
+
 12. Popule a dimensão calculando transições de status mês a mês e colapsando em intervalos:
 
 ```sql
@@ -435,33 +574,32 @@ WITH meses AS (
     FROM dw_star.dim_data
     WHERE dt_completa BETWEEN DATE '1993-01-01' AND DATE '1998-12-31'
 ),
-compras AS (
+compras_mes AS (
     SELECT
-        f.customer_sk,
         c.c_custkey,
         DATE_TRUNC('month', d.dt_completa) :: DATE AS mes_compra
     FROM dw_star.f_vendas     f
     JOIN dw_star.dim_data     d ON d.data_sk     = f.data_sk
     JOIN dw_star.dim_customer c ON c.customer_sk = f.customer_sk
-    GROUP BY f.customer_sk, c.c_custkey, DATE_TRUNC('month', d.dt_completa)
+    GROUP BY c.c_custkey, DATE_TRUNC('month', d.dt_completa)
+),
+clientes_meses AS (
+    SELECT cust.c_custkey, cust.vl_saldo, m.mes_ref
+    FROM dw_star.dim_customer cust
+    CROSS JOIN meses m
 ),
 status_mensal AS (
     SELECT
-        cust.c_custkey,
-        m.mes_ref,
-        CASE
-            WHEN EXISTS (
-                SELECT 1
-                FROM compras cp
-                WHERE cp.c_custkey = cust.c_custkey
-                  AND cp.mes_compra >= DATEADD(month, -12, m.mes_ref)
-                  AND cp.mes_compra <  m.mes_ref
-            )
-             AND cust.vl_saldo > -5000
-            THEN TRUE ELSE FALSE
-        END AS is_active
-    FROM dw_star.dim_customer cust
-    CROSS JOIN meses m
+        cm.c_custkey,
+        cm.mes_ref,
+        CASE WHEN MAX(cmp.c_custkey) IS NOT NULL AND cm.vl_saldo > -5000
+             THEN TRUE ELSE FALSE END AS is_active
+    FROM clientes_meses cm
+    LEFT JOIN compras_mes cmp
+      ON cmp.c_custkey = cm.c_custkey
+     AND cmp.mes_compra >= DATEADD(month, -12, cm.mes_ref)
+     AND cmp.mes_compra <  cm.mes_ref
+    GROUP BY cm.c_custkey, cm.mes_ref, cm.vl_saldo
 ),
 marcos AS (
     SELECT
@@ -530,10 +668,14 @@ Usa `LEAD()` para pegar a próxima transição e calcular `valid_to = próxima t
 
 ### Custo
 
-Este `INSERT` roda em poucos segundos mesmo com 150k clientes × 72 meses (10.8M pares). A chave é que window functions (`LAG`, `LEAD`, `ROW_NUMBER`) rodam bem paralelizadas em Redshift.
+Este `INSERT` roda em poucos segundos mesmo com 1,5M clientes × 72 meses (108M pares). A chave é que window functions (`LAG`, `LEAD`, `ROW_NUMBER`) rodam bem paralelizadas em Redshift — com 2 nós o paralelismo dobra.
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-13"></a>
 
 13. Pergunta analítica clássica que explora a SCD2 — quantos clientes estavam ativos em 1996-06-01?
 
@@ -551,6 +693,10 @@ WHERE DATE '1996-06-01' BETWEEN valid_from AND valid_to
 
 ### Opção B — Fato snapshot periódico
 
+---
+
+<a id="passo-14"></a>
+
 14. Agora a abordagem alternativa: modelar o mesmo conceito como **fato**, com uma linha por cliente × mês:
 
 ```sql
@@ -565,44 +711,94 @@ DISTKEY (customer_sk)
 SORTKEY (data_sk);
 ```
 
-15. Popule a fato snapshot (pode levar 1-2 minutos, são ~10M linhas):
+---
+
+<a id="passo-15"></a>
+
+15. Popule a fato snapshot. Em SF10 são **~108M linhas** (1,5M clientes × 72 meses), o que é pesado de uma vez só. Particionamos a carga **ano por ano** — 6 INSERTs sequenciais, cada um terminando em ~30-60s:
 
 ```sql
+-- 1996
 INSERT INTO dw_star.f_customer_status_mensal
 WITH meses AS (
     SELECT DISTINCT
         DATE_TRUNC('month', dt_completa) :: DATE AS mes_ref,
         CAST(TO_CHAR(DATE_TRUNC('month', dt_completa), 'YYYYMMDD') AS INTEGER) AS data_sk
     FROM dw_star.dim_data
-    WHERE dt_completa BETWEEN DATE '1993-01-01' AND DATE '1998-12-31'
+    WHERE EXTRACT(YEAR FROM dt_completa) = 1996
+),
+clientes_com_compra AS (
+    SELECT DISTINCT customer_sk FROM dw_star.f_vendas
+),
+compras_mensais AS (
+    SELECT
+        f.customer_sk,
+        DATE_TRUNC('month', d.dt_completa) :: DATE AS mes_compra,
+        COUNT(DISTINCT f.nr_pedido) AS qt_pedidos,
+        SUM(f.vl_receita_liquida)   AS vl_receita
+    FROM dw_star.f_vendas f
+    JOIN dw_star.dim_data d ON d.data_sk = f.data_sk
+    WHERE d.dt_completa >= DATE '1995-01-01'
+      AND d.dt_completa <  DATE '1997-01-01'
+    GROUP BY f.customer_sk, DATE_TRUNC('month', d.dt_completa)
 ),
 agregado_12m AS (
     SELECT
-        m.mes_ref,
-        m.data_sk,
-        c.customer_sk,
-        c.vl_saldo,
-        COUNT(DISTINCT f.nr_pedido) AS qt_pedidos,
-        COALESCE(SUM(f.vl_receita_liquida), 0) AS vl_receita
+        m.mes_ref, m.data_sk, c.customer_sk, c.vl_saldo,
+        COALESCE(SUM(cm.qt_pedidos), 0) AS qt_pedidos,
+        COALESCE(SUM(cm.vl_receita), 0) AS vl_receita
     FROM meses m
     CROSS JOIN dw_star.dim_customer c
-    LEFT JOIN dw_star.f_vendas f
-      ON f.customer_sk = c.customer_sk
-     AND CAST(TO_CHAR(DATE_TRUNC('month', f.dt_envio), 'YYYYMMDD') AS INTEGER)
-           BETWEEN CAST(TO_CHAR(DATEADD(month, -12, m.mes_ref), 'YYYYMMDD') AS INTEGER)
-               AND CAST(TO_CHAR(DATEADD(month, -1,  m.mes_ref), 'YYYYMMDD') AS INTEGER)
+    LEFT JOIN compras_mensais cm
+      ON cm.customer_sk = c.customer_sk
+     AND cm.mes_compra >= DATEADD(month, -12, m.mes_ref)
+     AND cm.mes_compra <  m.mes_ref
+    WHERE c.customer_sk IN (SELECT customer_sk FROM clientes_com_compra)
     GROUP BY m.mes_ref, m.data_sk, c.customer_sk, c.vl_saldo
 )
 SELECT
-    data_sk,
-    customer_sk,
+    data_sk, customer_sk,
     CASE WHEN qt_pedidos > 0 AND vl_saldo > -5000 THEN TRUE ELSE FALSE END AS is_active,
-    qt_pedidos  AS qt_pedidos_12m,
-    vl_receita  AS vl_receita_12m
+    qt_pedidos AS qt_pedidos_12m,
+    vl_receita AS vl_receita_12m
 FROM agregado_12m;
+```
 
+Repita o bloco acima trocando o ano em **três lugares**: na CTE `meses` (`EXTRACT(YEAR FROM dt_completa) = ANO`), e nas duas datas da CTE `compras_mensais` (filtra `ANO-1` e `ANO+1`). Os anos a rodar são **1993, 1994, 1995, 1996, 1997, 1998**.
+
+Após os 6 INSERTs, atualize as estatísticas:
+
+```sql
 ANALYZE dw_star.f_customer_status_mensal;
 ```
+
+<details>
+<summary><b>💡 Clique para entender: por que particionar a carga por ano</b></summary>
+<blockquote>
+
+A versão "tudo de uma vez" faria CROSS JOIN de **72 meses × 1,5M clientes = 108M pares** + LEFT JOIN com 60M linhas de `f_vendas` + GROUP BY. Em `ra3.large × 2` isso ultrapassa a memória de trabalho do cluster e causa derrame para disco — de 25 minutos para 25 minutos sem retornar nada (timeout silencioso do WLM).
+
+### A solução clássica: particionar por dimensão temporal
+
+Em vez de calcular a fato snapshot inteira de uma vez, calculamos **um ano de cada vez**. Cada ano tem 12 meses × 1,5M clientes = 18M pares — muito mais leve. O resultado final é idêntico (`UNION ALL` implícito via 6 `INSERT INTO ... SELECT` consecutivos).
+
+### Por que isso é a forma certa em produção
+
+Pipelines de carga de fatos snapshot reais sempre particionam por uma janela temporal — diária ou mensal — pelo mesmo motivo: **isolar o tamanho de cada batch** para caber na janela de manutenção e na memória do cluster.
+
+### Trade-off
+
+Ganhamos previsibilidade e controle, perdemos um pouco de eficiência de planejador (cada INSERT planeja sozinho). Para datasets pequenos, fazer tudo de uma vez é mais simples; para datasets reais, particionar é mandatório.
+
+</blockquote>
+</details>
+
+> [!TIP]
+> Se quiser pular esta etapa pesada (~6 min total) e seguir para os passos seguintes, pode reduzir para **só os anos 1996-1998** — basta rodar 3 INSERTs em vez de 6. As queries 16-19 abaixo ainda funcionam, só não têm dados anteriores a 1996.
+
+---
+
+<a id="passo-16"></a>
 
 16. Mesma pergunta (ativos em 1996-06-01), agora na fato snapshot:
 
@@ -618,7 +814,17 @@ GROUP BY data_sk;
 > [!TIP]
 > Os dois resultados (SCD2 + snapshot) devem ser iguais dentro de diferenças de borda. Se divergirem muito, a definição de "ativo" entre as duas implementações está inconsistente.
 
+<!-- PRINT SUGERIDO: img/snapshot_ativos_19960601.png
+     Resultado: data_sk=19960601, qtd_ativos=868239. Mesmo numero do
+     passo 13 (SCD2). Validacao cruzada — duas modelagens diferentes
+     respondem identico para a mesma pergunta pontual. -->
+![](img/snapshot_ativos_19960601.png)
+
 ### Comparando as abordagens
+
+---
+
+<a id="passo-17"></a>
 
 17. Rode uma pergunta que **favorece o snapshot** — evolução mensal de ativos em 3 anos:
 
@@ -632,6 +838,10 @@ WHERE data_sk BETWEEN 19960101 AND 19981231
 GROUP BY data_sk
 ORDER BY data_sk;
 ```
+
+---
+
+<a id="passo-18"></a>
 
 18. Rode uma pergunta que **favorece a SCD2** — ativos AUTOMOBILE por mês de 1997:
 
@@ -650,6 +860,10 @@ WHERE cv.is_active   = TRUE
 GROUP BY DATE_TRUNC('month', f.dt_envio)
 ORDER BY mes;
 ```
+
+---
+
+<a id="passo-19"></a>
 
 19. Rode a pergunta onde o snapshot é imbatível — clientes ativos por pelo menos 24 meses no total:
 
@@ -711,11 +925,28 @@ Se você chegou até aqui, então:
 
 ## Parte 4 - Evolução 3: SLA de 5s no dashboard executivo
 
+> **Maio. Você está em uma reunião quando o CEO entra**: *"O dashboard que vocês fizeram para o board demora 20 segundos para abrir. Isso é constrangedor. Quero menos de 5 segundos. Você tem até sexta-feira."*
+>
+> Diferente das duas anteriores, esta evolução **não é sobre semântica** — os números estão certos. É sobre **performance**. Vamos primeiro **medir** o baseline com `EXPLAIN`, depois testar **duas estratégias diferentes** (redesign físico da fato × MV pré-agregada) e comparar lado a lado.
+
+### Por que essa evolução existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | Dashboard executivo recorrente com SLA explícito (5s). A query atual demora 20s. Não dá para mudar a fórmula nem o resultado — só o **caminho** que o cluster percorre para chegar nele. |
+| **Pergunta que essa evolução responde** | *"Como reduzo tempo de query sem mudar nada do que ela retorna?"* — duas alavancas clássicas: (1) reorganizar **distribuição/sort** dos dados na fato, (2) **pré-agregar** o resultado em uma tabela menor. |
+| **Decisão central** | Redesign físico beneficia **todo workload** que filtra por aquela dimensão (efeito amplo, mas demanda re-criar tabela grande). MV pré-agregada beneficia **só** o dashboard, mas é pontual e barata. |
+| **Quando acontece na vida real** | Toda vez que um stakeholder C-level reclama de tempo de dashboard. É a evolução **mais frequente** em DWs maduros. |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, você terá medido a query-alvo, testado duas estratégias de otimização (redesign físico da fato × MV pré-agregada) e documentado a decisão.
+Ao final desta parte, você terá medido a query-alvo, testado **duas estratégias de otimização** (redesign físico da fato × MV pré-agregada) e documentado a decisão.
 
 ### A query-alvo
+
+---
+
+<a id="passo-20"></a>
 
 20. Esta é a query que o dashboard executivo roda hoje. Execute **3 vezes seguidas** e anote o tempo mediano (a primeira execução costuma ser mais lenta por compilação de plano):
 
@@ -749,6 +980,10 @@ A primeira execução inclui **compilação de plano** e **carregamento de bloco
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-21"></a>
 
 21. Olhe o plano da query. Procure por `DS_DIST_KEY`, `DS_BCAST_INNER` ou `DS_DIST_INNER` — são indicadores de redistribuição:
 
@@ -788,6 +1023,10 @@ Documentação oficial:
 
 ### Estratégia A — Redesign físico da fato
 
+---
+
+<a id="passo-22"></a>
+
 22. Recrie `f_vendas` com `DISTKEY(data_sk)` e `SORTKEY` composta. A tabela antiga é preservada como backup:
 
 ```sql
@@ -820,6 +1059,12 @@ INSERT INTO dw_star.f_vendas
 SELECT * FROM dw_star.f_vendas_original;
 
 ANALYZE dw_star.f_vendas;
+```
+
+> [!IMPORTANT]
+> O `VACUUM` **precisa rodar em uma transação separada** — Redshift não aceita `VACUUM` no meio de um bloco multi-statement. Rode-o em um bloco próprio:
+
+```sql
 VACUUM dw_star.f_vendas;
 ```
 
@@ -827,7 +1072,7 @@ VACUUM dw_star.f_vendas;
 <summary><b>⚠ Se o redesign demorar muito</b></summary>
 <blockquote>
 
-Recriar `f_vendas` com dados copiados envolve mover 6M linhas. Em `ra3.large` single-node isso leva tipicamente **1 a 3 minutos** — é esperado, não é travamento. O `VACUUM` no final adiciona mais ~30 segundos.
+Recriar `f_vendas` com dados copiados envolve mover 60M linhas (SF10). Em `ra3.large` × 2 nós isso leva tipicamente **3 a 5 minutos** — é esperado, não é travamento. O `VACUUM` no final adiciona mais ~30 segundos.
 
 Se passar de 5 minutos, abra outra aba e confira se o cluster não está bloqueado por outra query concorrente:
 
@@ -844,7 +1089,7 @@ WHERE status = 'Running';
 <summary><b>💡 Clique para entender: por que DISTKEY(data_sk) agora?</b></summary>
 <blockquote>
 
-No Lab 03.1, escolhemos `DISTKEY(customer_sk)` porque não sabíamos qual seria o workload dominante. Agora sabemos: o dashboard executivo **filtra e agrupa por data/região**.
+No Lab 03.2, escolhemos `DISTKEY(customer_sk)` porque não sabíamos qual seria o workload dominante. Agora sabemos: o dashboard executivo **filtra e agrupa por data/região**.
 
 ### Por que DISTKEY(data_sk) ajuda
 
@@ -868,6 +1113,10 @@ Documentação oficial:
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-23"></a>
 
 23. Rode a query-alvo novamente (3x) com a fato remodelada e anote o novo tempo:
 
@@ -909,6 +1158,10 @@ Duas causas mais comuns:
 
 ### Estratégia B — Materialized View pré-agregada
 
+---
+
+<a id="passo-24"></a>
+
 24. Agora crie uma MV com o corte exato que o dashboard consome:
 
 ```sql
@@ -934,6 +1187,10 @@ GROUP BY d.nr_ano, d.nr_mes, g.nm_regiao, c.sg_segmento;
 REFRESH MATERIALIZED VIEW dw_star.mv_dashboard_executivo;
 ```
 
+---
+
+<a id="passo-25"></a>
+
 25. Agora o dashboard consulta a MV em vez da fato. Rode 3x e anote o tempo:
 
 ```sql
@@ -953,6 +1210,10 @@ ORDER BY nr_ano, nr_mes, nm_regiao, sg_segmento;
 
 ### Comparando as três medições
 
+---
+
+<a id="passo-26"></a>
+
 26. Monte a tabela mental:
 
 | Estratégia | Tempo mediano (s) | Custo de implantação | Manutenção |
@@ -960,6 +1221,10 @@ ORDER BY nr_ano, nr_mes, nm_regiao, sg_segmento;
 | Baseline (DISTKEY customer_sk) | _______ | zero (já estava assim) | zero |
 | Estratégia A (DISTKEY data_sk) | _______ | alto (recriar fato) | baixa |
 | Estratégia B (MV pré-agregada) | _______ | baixo (só CREATE MV) | média (refresh + storage) |
+
+---
+
+<a id="passo-27"></a>
 
 27. Veja as últimas execuções de cada estratégia via system table:
 
@@ -1004,7 +1269,11 @@ A mudança de DISTKEY beneficia **todo** o workload que filtre por data — não
 
 ### Rollback (opcional)
 
-28. Se quiser voltar ao estado original do Lab 03.1, faça:
+---
+
+<a id="passo-28"></a>
+
+28. Se quiser voltar ao estado original do Lab 03.2, faça:
 
 ```sql
 DROP TABLE dw_star.f_vendas;
@@ -1025,19 +1294,19 @@ Se você chegou até aqui, então:
 
 ## Parte 5 - Reflexão final
 
-As perguntas abaixo não têm resposta única, mas têm respostas **melhores** que outras. Use-as para fechar o lab por escrito (no final do `DECISION.md` do Lab 03.1 ou em arquivo novo):
+As perguntas abaixo não têm resposta única, mas têm respostas **melhores** que outras. Use-as para fechar o lab por escrito (no final do `DECISION.md` do Lab 03.2 ou em arquivo novo):
 
-1. **"Você recalcularia o histórico com a nova fórmula de receita, ou manteria o número antigo congelado?"**
-   Em que contexto a resposta muda?
+**Pergunta R1.** **"Você recalcularia o histórico com a nova fórmula de receita, ou manteria o número antigo congelado?"**
+Em que contexto a resposta muda?
 
-2. **"O que é 'correto': o número da métrica no dia em que foi publicada, ou o número recalculado com a regra atual?"**
-   Existe resposta universal, ou depende de quem está pedindo?
+**Pergunta R2.** **"O que é 'correto': o número da métrica no dia em que foi publicada, ou o número recalculado com a regra atual?"**
+Existe resposta universal, ou depende de quem está pedindo?
 
-3. **"Se o CEO pedir 'a mesma tabela de 2023', você entrega como ela era, ou como ela fica aplicando as regras de hoje aos dados antigos?"**
-   Como a modelagem ajuda a separar esses dois mundos?
+**Pergunta R3.** **"Se o CEO pedir 'a mesma tabela de 2023', você entrega como ela era, ou como ela fica aplicando as regras de hoje aos dados antigos?"**
+Como a modelagem ajuda a separar esses dois mundos?
 
-4. **"Você começaria o próximo warehouse implementando SCD2 em tudo, ou SCD1 e só promoveria para SCD2 quando surgisse demanda explícita?"**
-   Existe "padrão seguro"?
+**Pergunta R4.** **"Você começaria o próximo warehouse implementando SCD2 em tudo, ou SCD1 e só promoveria para SCD2 quando surgisse demanda explícita?"**
+Existe "padrão seguro"?
 
 > [!TIP]
 > A maturidade aparece em responder com "depende de X e Y" em vez de "sempre Z". Este lab é um exercício de raciocínio, não de memorização.
@@ -1059,14 +1328,14 @@ Preços públicos AWS para a região `us-east-1` (valores de referência on-dema
 
 | Recurso | Preço unitário | Custo/dia (24h) | Custo/mês (720h) |
 |---------|---------------|-----------------|-------------------|
-| **Redshift `ra3.large` × 1 nó** | ~$0,287/hora | **~$6,89** | **~$207** |
-| **Redshift Managed Storage** (dados do TPC-H) | $0,024/GB-mês | ~$0,03 | ~$0,80 |
-| **S3 Standard** (~1 GB de Parquet) | $0,023/GB-mês | negligível | ~$0,02 |
+| **Redshift `ra3.large` × 2 nós** | ~$0,51/hora | **~$12,24** | **~$367** |
+| **Redshift Managed Storage** (dados do TPC-H SF10) | $0,024/GB-mês | ~$0,30 | ~$8 |
+| **S3 Standard** (~10 GB de `.tbl`) | $0,023/GB-mês | negligível | ~$0,23 |
 | **Glue Data Catalog** (primeiros 1M objetos) | grátis | $0 | $0 |
-| **Total estimado** | — | **~$7/dia** | **~$210/mês** |
+| **Total estimado** | — | **~$12,50/dia** | **~$375/mês** |
 
 > [!IMPORTANT]
-> **O cluster Redshift é 99% do custo.** Um fim de semana esquecido (~72h) consome ~$21 do seu budget do Learner Lab. Uma semana inteira, ~$50. Dois fins de semana, o budget acabou.
+> **O cluster Redshift é 99% do custo.** Um fim de semana esquecido (~72h) consome ~$37 do seu budget do Learner Lab. Uma semana inteira, ~$87. Sem destroy, em poucas semanas o budget acaba e a conta é desativada — perdendo todo o progresso.
 
 ### 28. Volte ao terminal do Codespaces
 
@@ -1110,10 +1379,10 @@ Você deve ver o `redshift_cluster_identifier`, `s3_bucket_name` e `glue_databas
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-terraform destroy
+terraform destroy -auto-approve
 ```
 
-O Terraform vai listar os **15 recursos** que serão deletados e pedir confirmação. Digite `yes` e aguarde.
+O Terraform vai listar os **15 recursos** que serão deletados e iniciar a remoção imediatamente (a flag `-auto-approve` pula o "type 'yes' to confirm").
 
 > [!NOTE]
 > O destroy leva tipicamente **3 a 5 minutos**. O cluster Redshift é o mais demorado de destruir (~3 minutos) porque o serviço precisa liberar storage, snapshots e ENIs associadas.
@@ -1137,7 +1406,7 @@ O Terraform lê o `terraform.tfstate` local, identifica todos os recursos gerenc
 
 ### Se der erro no meio do destroy
 
-Rode `terraform destroy` novamente. O Terraform é **idempotente** — ele só tenta destruir o que ainda existe. Causas comuns:
+Rode `terraform destroy -auto-approve` novamente. O Terraform é **idempotente** — ele só tenta destruir o que ainda existe. Causas comuns:
 
 - Cluster Redshift em estado `modifying`: aguarde 30s e tente de novo
 - Dependência temporária não liberada (ex: ENI presa): espere 1-2 min e repita
@@ -1195,7 +1464,7 @@ Se você chegou até aqui, então:
 - o Codespaces foi parado
 
 > [!TIP]
-> Você pode recriar todo o ambiente em qualquer outra aula rodando `terraform apply` novamente — leva 5-8 minutos e reproduz exatamente o mesmo estado. Essa é a beleza de infra como código.
+> Você pode recriar todo o ambiente em qualquer outra aula rodando `terraform apply -auto-approve` novamente — leva 5-8 minutos e reproduz exatamente o mesmo estado. Essa é a beleza de infra como código.
 
 ---
 
@@ -1212,3 +1481,24 @@ Se você chegou até aqui, você aplicou:
 
 Este é o fechamento da trilha de Data Modeling + Data Warehouse. Você construiu um warehouse, sentiu as escolhas de modelagem impactarem números concretos, viu como a evolução do negócio força o modelo a se adaptar e aprendeu a limpar tudo para preservar o budget.
 
+---
+
+<details>
+<summary><b>💡 Como pedir ajuda se travou</b></summary>
+<blockquote>
+
+Antes de abrir issue/perguntar no Slack, colete estas 4 informações — elas reduzem o tempo de resposta em 10×:
+
+1. **Em que passo você está** (ex: "Evolução 3, rodando o EXPLAIN da MV")
+2. **Mensagem de erro literal** (copia-cola completo, texto é pesquisável)
+3. **Saída de `SELECT * FROM SYS_QUERY_HISTORY ORDER BY start_time DESC LIMIT 5`** (mostra se a query rodou, falhou, ou está em fila)
+4. **O que você já tentou** (evita sugestão redundante)
+
+Canais (em ordem de prioridade):
+
+- **Issues do repositório**: [github.com/vamperst/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/issues](https://github.com/vamperst/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/issues)
+- **E-mail do professor**: `rafael.barbosa@fiap.com.br`
+- **Antes de tudo**: releia o `<details>` mais próximo com `⚠ Se der erro` — cobre a maioria dos casos conhecidos
+
+</blockquote>
+</details>

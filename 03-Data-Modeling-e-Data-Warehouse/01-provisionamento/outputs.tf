@@ -23,7 +23,7 @@ output "s3_bucket_arn" {
 }
 
 output "s3_raw_tpch_prefix" {
-  description = "Prefixo S3 onde o TPC-H Parquet será carregado pelo script"
+  description = "Prefixo S3 onde o TPC-H .tbl sera carregado pelo script (S3-to-S3 server-side)"
   value       = "s3://${aws_s3_bucket.dw_lab.id}/raw/tpch/"
 }
 
@@ -86,7 +86,7 @@ output "next_steps" {
      INFRAESTRUTURA PRONTA — Lab 03 Data Modeling & Data Warehouse
     ══════════════════════════════════════════════════════════════════
 
-    1) Carregue o dataset TPC-H SF1 para o S3:
+    1) Carregue o dataset TPC-H SF10 para o S3:
 
          cd ../  # sair de 01-provisionamento
          bash 01-provisionamento/scripts/load_tpch.sh

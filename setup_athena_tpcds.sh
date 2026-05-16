@@ -59,6 +59,134 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Comando obrigatório não encontrado: $1 (instale e rode novamente)."
 }
 
+detect_os() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    echo "macos"
+  elif [[ -f /etc/os-release ]]; then
+    if grep -qiE '^ID(_LIKE)?=.*(debian|ubuntu)' /etc/os-release; then
+      echo "debian"
+    elif grep -qiE '^ID(_LIKE)?=.*(rhel|centos|fedora|amzn)' /etc/os-release; then
+      echo "rhel"
+    else
+      echo "linux"
+    fi
+  else
+    echo "unknown"
+  fi
+}
+
+sudo_if_needed() {
+  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    die "Preciso de privilégios para instalar pacotes e 'sudo' não está disponível. Rode como root ou instale manualmente."
+  fi
+}
+
+pkg_install() {
+  local os="$1"; shift
+  echo "Instalando pacote(s): $*"
+  case "$os" in
+    debian)
+      # Evita qualquer prompt interativo (debconf / needrestart) que trave em Codespaces.
+      # Dpkg::Use-Pty=0 desliga o pty que bufferiza o output em alguns ambientes.
+      # Aguarda até 120s se outro processo (unattended-upgrades do Codespaces) estiver com o lock.
+      local waited=0
+      while sudo_if_needed fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
+         || sudo_if_needed fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
+         || sudo_if_needed fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+        if (( waited == 0 )); then
+          echo "  -> apt em uso por outro processo (ex: unattended-upgrades). Aguardando liberar o lock..."
+        fi
+        sleep 3
+        waited=$((waited + 3))
+        if (( waited >= 120 )); then
+          die "apt segue bloqueado após 120s. Tente: sudo killall apt apt-get unattended-upgrade; sudo rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock"
+        fi
+      done
+      # Flags de rede: Codespaces frequentemente trava no IPv6 de archive.ubuntu.com.
+      # Forçamos IPv4, reduzimos timeout e habilitamos retries.
+      local APT_NET_OPTS=(
+        -o Acquire::ForceIPv4=true
+        -o Acquire::http::Timeout=30
+        -o Acquire::https::Timeout=30
+        -o Acquire::Retries=3
+        -o Dpkg::Use-Pty=0
+      )
+      echo "  -> apt-get update ..."
+      sudo_if_needed env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        apt-get "${APT_NET_OPTS[@]}" update -y
+      echo "  -> apt-get install $* ..."
+      sudo_if_needed env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+        apt-get "${APT_NET_OPTS[@]}" \
+        -o Dpkg::Options::=--force-confold \
+        -o Dpkg::Options::=--force-confdef \
+        install -y --no-install-recommends "$@"
+      ;;
+    rhel)
+      if command -v dnf >/dev/null 2>&1; then
+        sudo_if_needed dnf install -y "$@"
+      else
+        sudo_if_needed yum install -y "$@"
+      fi
+      ;;
+    macos)
+      command -v brew >/dev/null 2>&1 || die "Homebrew não encontrado. Instale em https://brew.sh/ e tente novamente."
+      brew install "$@"
+      ;;
+    *)
+      die "SO não suportado para instalação automática: $os. Instale manualmente: $*"
+      ;;
+  esac
+}
+
+install_awscli() {
+  local os="$1"
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  case "$os" in
+    debian|rhel|linux)
+      local arch url
+      arch="$(uname -m)"
+      if [[ "$arch" == "aarch64" || "$arch" == "arm64" ]]; then
+        url="https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip"
+      else
+        url="https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
+      fi
+      command -v curl  >/dev/null 2>&1 || die "curl precisa estar disponível antes de instalar o AWS CLI."
+      command -v unzip >/dev/null 2>&1 || die "unzip precisa estar disponível antes de instalar o AWS CLI."
+      curl -fsSL "$url" -o "$tmpdir/awscliv2.zip"
+      unzip -q "$tmpdir/awscliv2.zip" -d "$tmpdir"
+      sudo_if_needed "$tmpdir/aws/install" --update >/dev/null
+      ;;
+    macos)
+      curl -fsSL "https://awscli.amazonaws.com/AWSCLIV2.pkg" -o "$tmpdir/AWSCLIV2.pkg"
+      sudo_if_needed installer -pkg "$tmpdir/AWSCLIV2.pkg" -target /
+      ;;
+    *)
+      die "SO não suportado para instalação automática do AWS CLI: $os"
+      ;;
+  esac
+  rm -rf "$tmpdir"
+}
+
+ensure_cmd() {
+  local cmd="$1"
+  local os="$2"
+  if command -v "$cmd" >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "Comando '$cmd' não encontrado — instalando automaticamente ($os)..."
+  case "$cmd" in
+    aws)          install_awscli "$os" ;;
+    curl|unzip|file) pkg_install "$os" "$cmd" ;;
+    *)            pkg_install "$os" "$cmd" ;;
+  esac
+  command -v "$cmd" >/dev/null 2>&1 || die "Falha ao instalar '$cmd'. Instale manualmente e rode de novo."
+}
+
 detect_region() {
   local region=""
   region="$(aws configure get region 2>/dev/null || true)"
@@ -249,11 +377,14 @@ prepare_ddl() {
 # Execução
 #########################################
 
-progress "Validando pré-requisitos (aws, curl, unzip, file)..."
-need_cmd aws
-need_cmd curl
-need_cmd unzip
-need_cmd file
+progress "Validando pré-requisitos (aws, curl, unzip, file) — instalando o que faltar..."
+OS_FAMILY="$(detect_os)"
+echo "SO detectado: $OS_FAMILY"
+# curl e unzip primeiro: o instalador do AWS CLI (Linux) depende deles.
+ensure_cmd curl  "$OS_FAMILY"
+ensure_cmd unzip "$OS_FAMILY"
+ensure_cmd file  "$OS_FAMILY"
+ensure_cmd aws   "$OS_FAMILY"
 
 progress "Preparando diretório de trabalho..."
 mkdir -p "$WORKDIR"

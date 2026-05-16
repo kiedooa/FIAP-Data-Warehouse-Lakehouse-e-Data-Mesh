@@ -16,3 +16,6 @@ crash.*.log
 
 # Arquivos temporários do script de carga
 /tmp/tpch_*
+
+# venv local criado pelo load_tpch.sh
+.venv/

@@ -31,7 +31,7 @@ Antes de desenhar qualquer exercício, é preciso respeitar as limitações do a
 |--------------------------|--------------------|
 | **Não é possível criar IAM roles** | Usaremos exclusivamente a role pré-criada `LabRole` (ARN: `arn:aws:iam::<ACCOUNT_ID>:role/LabRole`) para Redshift, Glue e S3. Nada de custom roles. |
 | **Região limitada a `us-east-1` e `us-west-2`** | Tudo na `us-east-1` (padrão da disciplina). |
-| **Redshift**: tipo `ra3.large`, máximo **2 nós** provisionados (Serverless **não listado** no PDF → indisponível) | Usaremos **Redshift provisionado**, cluster single-node `ra3.large`. Sem Serverless, sem S3 Tables, sem Lake Formation, sem DataZone (não listados no PDF). |
+| **Redshift**: tipo `ra3.large`, máximo **2 nós** provisionados (Serverless **não listado** no PDF → indisponível) | Usaremos **Redshift provisionado**, cluster `ra3.large` × **2 nós** (limite máximo do Learner Lab). Sem Serverless, sem S3 Tables, sem Lake Formation, sem DataZone (não listados no PDF). |
 | **EC2**: apenas `nano`, `micro`, `small`, `medium`, `large`; máximo 9 instâncias concorrentes | Nenhum lab exige EC2 direto. Tudo roda via Codespaces + serviços gerenciados. |
 | **Budget consumível** (créditos limitados) | Recursos pagos por demanda (Serverless, S3, Glue). Scripts de **teardown** obrigatórios. |
 | **Sessão de 4h** — recursos persistem entre sessões, mas compute pode ser parada | Laboratório orientado a retomada; dados ficam no S3 e no namespace Redshift. |
@@ -47,27 +47,41 @@ Antes de desenhar qualquer exercício, é preciso respeitar as limitações do a
 
 Para garantir que **todos os alunos executem a mesma query e obtenham o mesmo resultado**, o laboratório usará um dataset público, determinístico e pronto:
 
-### TPC-H Scale Factor 1 (~1.2 GB em Parquet)
+### TPC-H Scale Factor 10 (~10,4 GB de texto delimitado)
 
-- **Fonte primária (bucket público AWS)**: [`s3://redshift-downloads/TPC-H/2.18/1GB/`](https://redshift-downloads.s3.amazonaws.com/TPC-H/2.18/1GB/) — bucket público mantido pela AWS, usado em tutoriais oficiais do Redshift. Contém os 8 arquivos do TPC-H SF1 em formato texto delimitado (`|`).
-- **Conversão para Parquet**: feita uma única vez pelo [`scripts/load_tpch.sh`](01-provisionamento/scripts/load_tpch.sh) dentro do Codespaces (download → convert → upload no bucket do aluno). Script usa `pandas` + `pyarrow` (já disponíveis no devcontainer).
-- **Alternativa 100% pronta em Parquet** (caso o passo de conversão seja indesejado): [`s3://blogpost-sparkoneks-us-east-1/blog/BLOG_TPCDS-TPCH-PIGTPCH/tpch/`](https://registry.opendata.aws/) — outros mirrors AWS de TPC-H em Parquet estão catalogados no [AWS Open Data Registry](https://registry.opendata.aws/).
+- **Fonte primária (bucket público AWS)**: [`s3://redshift-downloads/TPC-H/2.18/10GB/`](https://redshift-downloads.s3.amazonaws.com/TPC-H/2.18/10GB/) — bucket público mantido pela AWS, usado em tutoriais oficiais do Redshift. Contém os 8 arquivos do TPC-H SF10 em formato texto delimitado (`|`).
+- **Carga**: feita uma única vez pelo [`scripts/load_tpch.sh`](01-provisionamento/scripts/load_tpch.sh) via **S3-to-S3 server-side copy** (sem passar por Codespaces). Os 8 arquivos `.tbl` são copiados em paralelo do bucket público para o bucket `dw-lab-<ACCOUNT_ID>` do aluno em ~1m40.
 - **Especificação oficial do benchmark**: [TPC-H Benchmark — TPC.org](https://www.tpc.org/tpch/)
 - **Repositório de referência AWS**: [awslabs/amazon-redshift-utils](https://github.com/awslabs/amazon-redshift-utils)
-- **Formato final no laboratório**: Parquet (snappy-compressed) no bucket `dw-lab-<ACCOUNT_ID>/raw/tpch/`
-- **Tamanho**: ~1.2 GB distribuído em **8 tabelas relacionais**
+- **Formato final no laboratório**: `.tbl` (texto, separador `|`) — formato nativo TPC-H. Redshift lê via `COPY ... FORMAT AS CSV DELIMITER '|'`.
+- **Tamanho**: ~10,4 GB distribuído em **8 tabelas relacionais**
 - **Domínio**: sistema de compras / supply chain (cenário clássico, rico em relacionamentos)
+
+<details>
+<summary><b>💡 Por que TPC-H? (contexto histórico em 2 parágrafos)</b></summary>
+<blockquote>
+
+O **TPC-H** foi criado em 1999 pelo TPC (Transaction Processing Performance Council), um consórcio formado pelos principais fornecedores de banco de dados da época: Oracle, IBM, Microsoft, Sybase, Informix, NCR/Teradata. O objetivo era ter um **benchmark padrão** para Data Warehouse — cada fornecedor publicava o "TPC-H score" do seu produto como prova oficial de capacidade analítica. Por décadas, ganhar o benchmark era prestígio comercial. Em 2025, com tudo na nuvem e queries OLAP terabytes, ele perdeu relevância como métrica competitiva.
+
+Mas o **vocabulário** do TPC-H sobreviveu. As 8 tabelas (`orders`, `lineitem`, `customer`, `supplier`, `part`, `partsupp`, `nation`, `region`) viraram o "Hello World" universal de DW. Quando você lê em um livro, paper acadêmico ou doc oficial AWS *"fato vendas com `lineitem` como grain"*, a comunidade inteira entende. Por que escolhemos ele neste lab: você sai do MBA com fluência no exemplo que aparece em **80% das entrevistas técnicas de engenharia de dados** e em quase toda documentação da AWS sobre Redshift. É o equivalente analítico ao schema de pets da Hibernate — todo mundo conhece, e isso é uma vantagem.
+
+Referências:
+- [Especificação completa TPC-H 2.18 (PDF)](http://tpc.org/tpc_documents_current_versions/pdf/TPC-H_v2.18.0.pdf)
+- [Histórico do TPC](https://www.tpc.org/information/about/history.asp)
+
+</blockquote>
+</details>
 
 ### Tabelas do dataset (fonte operacional simulada)
 
-| Tabela | Descrição | Linhas aprox. (SF1) |
-|--------|-----------|---------------------|
-| `lineitem` | Itens de pedido (maior tabela, ~600 MB) | 6.000.000 |
-| `orders` | Pedidos | 1.500.000 |
-| `customer` | Clientes | 150.000 |
-| `part` | Produtos/peças | 200.000 |
-| `supplier` | Fornecedores | 10.000 |
-| `partsupp` | Relação produto-fornecedor | 800.000 |
+| Tabela | Descrição | Linhas (SF10) |
+|--------|-----------|---------------|
+| `lineitem` | Itens de pedido (maior tabela, 7,2 GB texto) | 59.986.052 |
+| `orders` | Pedidos (1,6 GB texto) | 15.000.000 |
+| `partsupp` | Relação produto-fornecedor (1,1 GB texto) | 8.000.000 |
+| `part` | Produtos/peças (230 MB texto) | 2.000.000 |
+| `customer` | Clientes (232 MB texto) | 1.500.000 |
+| `supplier` | Fornecedores (13 MB texto) | 100.000 |
 | `nation` | Países | 25 |
 | `region` | Regiões | 5 |
 
@@ -75,7 +89,7 @@ Para garantir que **todos os alunos executem a mesma query e obtenham o mesmo re
 
 - **Determinismo**: mesmas queries produzem os mesmos números em toda a turma (requisito explícito do professor).
 - **Realismo**: dataset clássico da indústria, usado em benchmarks e documentação AWS.
-- **Volume adequado**: ~1.2 GB cabe nas restrições e é suficiente para observar efeitos de distkey, sort key e Spectrum.
+- **Volume adequado**: ~10 GB de texto (SF10) cabe nas restrições e é suficiente para observar efeitos de distkey, sort key e paralelismo MPP.
 - **Rico em dimensões**: 8 tabelas permitem modelagem fato/dimensão, dimensões conformadas e cenários de SCD.
 - **Está disponível no script da Aula 2** (TPC-DS). TPC-H é irmão dele — preferimos TPC-H porque o modelo é mais enxuto para uma aula única.
 
@@ -97,7 +111,7 @@ Antes dos exercícios, vale fixar **as capacidades do Redshift que habilitam os 
 
 | Capacidade do Redshift | O que permite na prática | Como aparece no lab |
 |------------------------|--------------------------|---------------------|
-| **Colunar + MPP por slices** | Scans seletivos de poucas colunas em tabelas grandes; paralelismo por slice mesmo em single-node | `EXPLAIN` mostrando `scan` colunar; comparação de tempo entre `SELECT *` vs. `SELECT col` |
+| **Colunar + MPP por slices** | Scans seletivos de poucas colunas em tabelas grandes; paralelismo por slice (4 slices em 2 nós ra3.large) | `EXPLAIN` mostrando `scan` colunar; comparação de tempo entre `SELECT *` vs. `SELECT col` |
 | **`DISTKEY` / `DISTSTYLE ALL/AUTO/EVEN/KEY`** | Controla como linhas são espalhadas entre slices → define se joins são locais ou exigem redistribuição | Recriar `f_vendas` com 3 distkeys diferentes (customer, data, even) e medir `EXPLAIN ANALYZE` |
 | **`SORTKEY` compound/interleaved** | Ordena dados fisicamente, habilita zone maps e block skipping em filtros por faixa | Consulta de 1 mês vs. 1 ano com e sem sort key por `data_sk` |
 | **`COPY FROM 's3://...'`** | Ingestão paralela de Parquet/CSV com `IAM_ROLE 'LabRole ARN'` | Carga inicial das dimensões e fato; split de arquivos influencia paralelismo |
@@ -126,9 +140,9 @@ Essa narrativa não é decorativa. Ela **força o aluno a enfrentar a ambiguidad
 
 ---
 
-### Lab 03.1 — Do OLTP ao Star Schema: três modelagens, três respostas
+### Lab 03.2 — Do OLTP ao Star Schema: três modelagens, três respostas
 
-**Duração estimada**: 75-90 min
+**Duração estimada**: 75-100 min
 
 **Objetivo pedagógico**: levar o aluno a rodar **exatamente a mesma pergunta de negócio** em três modelagens diferentes da mesma base, observar que os números divergem e entender **por que cada divergência tem uma justificativa legítima**. No final, o aluno escolhe qual modelagem vai servir o dashboard e precisa defender a escolha.
 
@@ -184,7 +198,7 @@ O aluno roda a query-âncora nos três schemas e obtém **três números diferen
 | C (Star SCD2) | $X₃ | Reflete segmento que o cliente tinha **em 1995** |
 
 > [!NOTE]
-> Para o aluno conseguir reproduzir isso de forma didática, o `load_tpch.sh` **injeta de propósito** uma evolução: ~5% dos clientes da TPC-H recebem reclassificação de segmento com data de alteração posterior a 1995. Essa alteração é registrada em uma tabela `customer_history` carregada junto. A tabela `customer` original do TPC-H vira o "snapshot atual" e a `customer_history` alimenta o SCD2.
+> Para o aluno conseguir reproduzir isso de forma didática, o `load_tpch.sh` **injeta de propósito** uma evolução: **exatamente ~75.000 clientes** (5% da base SF10 de 1,5M, sorteio determinístico com seed `42` — todos os alunos obtêm o mesmo conjunto) recebem reclassificação de segmento com data de alteração posterior a 1995. Essa alteração é registrada em uma tabela `customer_history` carregada junto. A tabela `customer` original do TPC-H vira o "snapshot atual" e a `customer_history` alimenta o SCD2.
 
 **Conceitos exercitados (expandidos)**:
 - Grain declaration explícito e **comparação com o não-grain** do espelho OLTP
@@ -212,13 +226,13 @@ O aluno roda a query-âncora nos três schemas e obtém **três números diferen
 
 ---
 
-### Lab 03.2 — Evolução do negócio: quando a modelagem tem que mudar
+### Lab 03.3 — Evolução do negócio: quando a modelagem tem que mudar
 
-**Duração estimada**: 60-75 min
+**Duração estimada**: 70-90 min
 
 **Objetivo pedagógico**: simular que **o negócio mudou** e observar o que isso faz com o modelo escolhido. O aluno vê que evolução de negócio é uma força **constante** sobre o warehouse, e que decisões de modelagem tomadas no dia 1 raramente sobrevivem ao ano 2 sem ajuste. O recurso do Redshift vira consequência do problema de negócio, não o contrário.
 
-**Três evoluções aplicadas sobre o star schema do Lab 03.1:**
+**Três evoluções aplicadas sobre o star schema do Lab 03.2:**
 
 #### Evolução 1 — "Abrimos um novo canal e queremos medir margem real"
 
@@ -242,7 +256,7 @@ Antes, cliente ativo era "fez ao menos uma compra". Agora, é "fez ao menos uma 
 
 O dashboard de receita por região × mês × segmento tem que carregar em menos de 5s, mesmo com dados crescendo 3x ao ano. A query atual faz hash join + redistribute porque a distkey foi colocada em `customer_sk`, mas o filtro mais frequente é por `data_sk`.
 
-- **Dor**: a distkey que era ótima para o Lab 03.1 passou a ser um problema
+- **Dor**: a distkey que era ótima para o Lab 03.2 passou a ser um problema
 - **Resposta técnica no Redshift**: reconstruir `f_vendas` com `DISTKEY(data_sk)` ou `DISTSTYLE AUTO`, comparar `EXPLAIN ANALYZE` antes e depois, criar Materialized View pré-agregada para o dashboard
 - **Decisão pedagógica**: mudar distkey é custoso (recria tabela). Vale? Ou criar uma **segunda** cópia pré-agregada (uma MV) é melhor?
 - **Recursos do Redshift envolvidos**: `DISTSTYLE AUTO`, Materialized View com refresh agendado, `STL_QUERY`/`SYS_QUERY_HISTORY` para medir latência real
@@ -311,7 +325,7 @@ Toda a infraestrutura sobe via **Terraform** na pasta `01-provisionamento/`. Nen
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Amazon Redshift (provisionado, single-node)             │
+│  Amazon Redshift (provisionado, 2 nós ra3.large)         │
 │    ├── cluster identifier: dw-aula3-<ACCOUNT_ID>         │
 │    ├── node type: ra3.large                              │
 │    ├── node count: 1                                     │
@@ -320,23 +334,22 @@ Toda a infraestrutura sobe via **Terraform** na pasta `01-provisionamento/`. Nen
 │    ├── master user: admin                                │
 │    ├── publicly accessible: true (pra Codespaces chegar) │
 │    └── schemas criados nos labs:                         │
-│          ├── oltp_mirror     (Lab 03.1 — Modelagem A)    │
-│          ├── dw_star         (Lab 03.1 — Modelagem B)    │
-│          ├── dw_star_scd2    (Lab 03.1 — Modelagem C)    │
-│          └── dw_evolucao     (Lab 03.2 — extensões)      │
+│          ├── oltp_mirror     (Lab 03.2 — Modelagem A)    │
+│          ├── dw_star         (Lab 03.2 — Modelagem B)    │
+│          ├── dw_star_scd2    (Lab 03.2 — Modelagem C)    │
+│          └── dw_evolucao     (Lab 03.3 — extensões)      │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Por que Redshift provisionado single-node `ra3.large`?
+### Por que Redshift provisionado `ra3.large` × 2 nós?
 
 1. **É o que o Learner Lab permite** — Serverless não aparece no PDF de restrições, portanto tratamos como indisponível.
-2. **Single-node cabe no budget** — 1 × `ra3.large` é o menor footprint pagante do Redshift; suficiente para o volume do TPC-H SF1.
+2. **Multi-node leve cabe no budget** — 2 × `ra3.large` (limite do Learner Lab) custa ~$0,51/h, irrelevante no contexto de uma aula de 2-3h. O 2º nó dobra os slices (2 → 4) e reduz o `COPY` de `lineitem` (60M linhas) de ~9 min para ~6 min.
 3. **Pedagogicamente rico mesmo com 1 nó** — mesmo sem múltiplos nós, o aluno observa distribuição por slices, sort keys, compressão colunar, materialized views e MPP interno por slice. Single-node `ra3.large` tem 2 slices, suficiente para ver redistribuição de dados em `EXPLAIN ANALYZE`.
-4. **Pausa suportada** — `aws redshift pause-cluster` reduz custo entre aulas (aluno pausa ao final da sessão).
-5. **Aceita a role `LabRole`** associada via IAM role attachment — sem criar role nova.
+4. **Aceita a role `LabRole`** associada via IAM role attachment — sem criar role nova.
 
 > [!WARNING]
-> O cluster **continua consumindo budget mesmo ocioso** enquanto não for pausado ou deletado. O `terraform destroy` no final da aula é parte obrigatória do fluxo.
+> O cluster **continua consumindo budget mesmo ocioso** enquanto não for deletado. O `terraform destroy` no final da aula é **parte obrigatória do fluxo** — não é opcional.
 
 ### Por que Terraform e não CloudFormation ou shell?
 
@@ -381,13 +394,13 @@ O shell script `load_tpch.sh` é o único script — e só roda porque:
 │   ├── versions.tf
 │   └── scripts/
 │       └── load_tpch.sh               ← dataset ingestion (uma vez)
-├── 02-modelagem-e-carga/                ← Lab 03.1 (três modelagens, três respostas)
+├── 02-modelagem-e-carga/                ← Lab 03.2 (três modelagens, três respostas)
 │   ├── README.md                       ← passo a passo narrativo + todos os SQLs inline
 │   ├── DECISION_TEMPLATE.md            ← template p/ aluno documentar escolha
 │   └── img/
 │       ├── arquitetura-03-1.drawio
 │       └── arquitetura-03-1.png
-└── 03-analise-dimensional/              ← Lab 03.2 (três evoluções do negócio)
+└── 03-analise-dimensional/              ← Lab 03.3 (três evoluções do negócio)
     ├── README.md                       ← passo a passo narrativo + todos os SQLs inline
     └── img/
         ├── arquitetura-03-2.drawio
@@ -421,7 +434,7 @@ O Codespaces já tem AWS CLI, Python e psql disponíveis (ver [.devcontainer/REA
 | Serviço necessário | Permitido? | Observação |
 |--------------------|-----------|------------|
 | **Amazon S3** | ✅ Sim | LabRole tem acesso |
-| **Amazon Redshift (provisionado)** | ✅ Sim | `ra3.large`, single-node (limite do PDF: máx 2 nós) |
+| **Amazon Redshift (provisionado)** | ✅ Sim | `ra3.large` × **2 nós** (máximo permitido pelo PDF) |
 | **AWS Glue** (Data Catalog) | ✅ Sim | Assume LabRole. Usado apenas para catalogar o TPC-H em S3 (referência para `COPY FROM`) |
 | **Redshift Spectrum** | ⚠️ Não listado no PDF | **Não usamos**. Toda consulta é contra tabelas internas do Redshift carregadas via `COPY` |
 | **CloudFormation / Terraform** | ✅ Sim | Ambos permitidos. Terraform via CLI no Codespaces |
@@ -436,7 +449,7 @@ O Codespaces já tem AWS CLI, Python e psql disponíveis (ver [.devcontainer/REA
 ## Por que isso é legal pedagogicamente
 
 1. **A mesma pergunta, respostas diferentes** — o aluno vê concretamente que "o número" depende da modelagem, não só dos dados. Isso muda a forma dele conversar com stakeholders pelo resto da carreira.
-2. **Narrativa de evolução de negócio** — o Lab 03.2 força o aluno a sentir a dor de modelar para o hoje e precisar acomodar o amanhã. Essa é a realidade de 100% dos warehouses em produção.
+2. **Narrativa de evolução de negócio** — o Lab 03.3 força o aluno a sentir a dor de modelar para o hoje e precisar acomodar o amanhã. Essa é a realidade de 100% dos warehouses em produção.
 3. **Resultados determinísticos dentro de cada modelagem** — o aluno A e o aluno B, rodando a **mesma modelagem** com o **mesmo dataset**, obtêm **o mesmo número**. Diferenças entre modelagens são pedagógicas; diferenças entre colegas são bugs.
 4. **Infra como código desde o dia 1** — alunos saem sabendo que cluster Redshift não é algo mágico que alguém clica para subir; é código versionado.
 5. **Foco no que importa** — o aluno gasta tempo pensando em grain, SCD, trade-offs de distkey e negociação com o negócio, não clicando em wizard da AWS.
@@ -469,14 +482,14 @@ Início da aula
     │
     ▼
 cd 03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-terraform init && terraform apply            ← 5-8 min
+bash scripts/init.sh && terraform apply -auto-approve   ← 5-8 min
     │
     ▼
 bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + customer_history)
     │
     ▼
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Lab 03.1 — Três modelagens, três respostas (75-90 min)
+  Lab 03.2 — Três modelagens, três respostas (75-100 min)
   cd 02-modelagem-e-carga/
     Etapa A: oltp_mirror       → query-âncora → anota número
     Etapa B: dw_star (SCD1)    → query-âncora → anota número
@@ -487,7 +500,7 @@ bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + cu
     │
     ▼
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Lab 03.2 — Evolução do negócio (60-75 min)
+  Lab 03.3 — Evolução do negócio (70-90 min)
   cd 03-analise-dimensional/
     Evolução 1: nova fórmula de receita (MV vs. view)
     Evolução 2: "cliente ativo" (SCD2 vs. snapshot periódico)
@@ -497,7 +510,7 @@ bash scripts/load_tpch.sh                    ← 3-5 min (download + upload + cu
     │
     ▼
 Fim da aula
-cd ../01-provisionamento && terraform destroy  ← preserva budget
+cd ../01-provisionamento && terraform destroy -auto-approve  ← preserva budget
 ```
 
 ---

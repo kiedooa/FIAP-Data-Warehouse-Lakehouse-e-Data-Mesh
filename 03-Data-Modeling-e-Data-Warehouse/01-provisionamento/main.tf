@@ -4,7 +4,7 @@
 # Infraestrutura mínima para o laboratório rodar dentro das restrições do
 # AWS Academy Learner Lab:
 #   - NÃO cria IAM roles (usa LabRole pré-existente)
-#   - Redshift provisionado ra3.large com 1 nó (máx permitido: 2)
+#   - Redshift provisionado ra3.large com 2 nós (máx permitido pelo Learner Lab)
 #   - Região us-east-1 (ou us-west-2)
 #   - Recursos nomeados com AccountID para evitar colisão entre alunos
 # =============================================================================
@@ -140,7 +140,7 @@ resource "aws_s3_object" "prefix_unload" {
 # auditoria e para o aluno ver o dataset no console Glue.
 resource "aws_glue_catalog_database" "tpch_raw" {
   name        = "tpch_raw_${local.short_id}"
-  description = "Catálogo do TPC-H SF1 em Parquet para o Lab 03"
+  description = "Catalogo do TPC-H SF10 em texto delimitado para o Lab 03"
 
   catalog_id = local.account_id
 }
@@ -185,11 +185,11 @@ resource "aws_security_group_rule" "redshift_egress" {
 }
 
 # =============================================================================
-# Redshift — Cluster provisionado single-node ra3.large
+# Redshift — Cluster provisionado multi-node ra3.large (2 nós)
 # =============================================================================
 # Restrições Learner Lab respeitadas:
 #   - node_type = ra3.large (único permitido)
-#   - number_of_nodes = 1 (dentro do limite de 2)
+#   - number_of_nodes = 2 (limite máximo do Learner Lab; paraleliza slices)
 #   - iam_roles = [LabRole ARN] (role pré-existente, não criamos nova)
 #   - enhanced_vpc_routing = false (evita custo de VPC Endpoint)
 #   - encrypted = true (boa prática)

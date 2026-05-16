@@ -1,9 +1,9 @@
-# 03 · Parte 1 — Provisionamento da infraestrutura
+# 03.1 - Provisionamento da infraestrutura
 
 Este é o primeiro passo do Lab 03. Aqui o aluno sobe — via **Terraform** — toda a infraestrutura necessária para os exercícios de modelagem dimensional e Redshift. Nenhum clique em console além de copiar credenciais do AWS Academy.
 
 > [!TIP]
-> Leia primeiro a [proposta geral do Lab 03](../README.md) antes de executar este passo. Aqui o foco é **operacional**: subir, usar, pausar, destruir.
+> Leia primeiro a [proposta geral do Lab 03](../README.md) antes de executar este passo. Aqui o foco é **operacional**: subir, usar, destruir.
 
 ## Arquitetura
 
@@ -47,17 +47,81 @@ Se ambos funcionarem, prossiga.
 
 ---
 
+## Mapa do lab
+
+| Passo | O que você faz | Tempo |
+|-------|----------------|-------|
+| [Passo 1](#passo-1) | Subir a infraestrutura (`terraform apply`) | ~1m20-5min |
+| [Passo 2](#passo-2) | Carregar o dataset TPC-H (`load_tpch.sh`) | ~1m40 |
+| [Passo 3](#passo-3) | Conectar no Redshift via Query Editor v2 ou psql | ~3 min |
+| [Passo 4](#passo-4) | Prossiga para o Lab 03.2 | imediato |
+
+> [!TIP]
+> Se travou em algum passo, você pode pular direto: clique no número do passo acima.
+
+---
+
 ## Passo a passo
+
+<a id="passo-1"></a>
 
 ### 1. Subir a infraestrutura
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-terraform init
-terraform apply
+bash scripts/init.sh
+terraform apply -auto-approve
 ```
 
-Tempo típico: **5 a 8 minutos** (o Redshift é o que mais demora).
+Tempo típico: **1m20 a 5 minutos** (o Redshift é o que mais demora; 2 nós ra3.large levam ~1m20 quando a região tem capacidade). A flag `-auto-approve` pula o "type 'yes' to confirm" — esse lab é sobre modelagem dimensional, não sobre rituais do Terraform.
+
+<!-- PRINT SUGERIDO: img/terraform_apply_sucesso.png
+     Saída final do terraform apply: linha "Apply complete! Resources: 15 added"
+     + bloco next_steps com endpoint do Redshift, bucket, glue_database. Confirma
+     que a infra subiu inteira. -->
+![](img/terraform_apply_sucesso.png)
+
+<details>
+<summary><b>💡 Clique para entender: o que <code>scripts/init.sh</code> faz</b></summary>
+<blockquote>
+
+O script substitui o `terraform init` puro e configura o **state remoto no S3** com um único comando. Ele:
+
+1. Valida que `aws sts get-caller-identity` funciona (credenciais ativas)
+2. Localiza o bucket `base-config-<SEU_RM>` criado no Lab 00 (`aws s3 ls | awk '/base-config-/ ...'`)
+3. Roda `terraform init -reconfigure -backend-config="bucket=<bucket-encontrado>"`
+
+O backend S3 está declarado em [`state.tf`](state.tf) com `key = "03-data-warehouse/terraform.tfstate"`. O nome do bucket é injetado em runtime para evitar acoplamento com o RM de cada aluno.
+
+**Por que state remoto neste lab?**
+
+| Vantagem | O que acontece sem state remoto |
+|----------|----------------------------------|
+| Sobrevive a reinício do Codespaces | Se o container é recriado, o `.terraform/` local é perdido — qualquer `apply` subsequente recria tudo do zero, gerando recursos órfãos |
+| Permite trocar de máquina | Aluno que começa em casa e termina na faculdade não consegue dar `destroy` sem o state local |
+| Auditável | O `tfstate` no S3 fica como evidência da sessão para o professor |
+
+A `LabRole` já tem `s3:GetObject` e `s3:PutObject` no bucket `base-config-*` — não há permissão extra a configurar.
+
+</blockquote>
+</details>
+
+<details>
+<summary><b>⚠ Se der erro: <code>nenhum bucket 'base-config-*' encontrado</code></b></summary>
+<blockquote>
+
+Você ainda não rodou o setup do Lab 00. Vá para [`00-create-codespaces/README.md`](../../00-create-codespaces/README.md), crie o bucket `base-config-<SEU_RM>` e volte aqui.
+
+Validação rápida:
+
+```bash
+aws s3 ls | grep base-config
+```
+
+Deve retornar uma linha. Se vier vazio, o bucket não existe na conta atual.
+
+</blockquote>
+</details>
 
 O Terraform vai perguntar se você confirma (`yes`). No final, imprime outputs como:
 
@@ -76,7 +140,7 @@ Alguma conta do Learner Lab não vem com VPC default. Crie uma e rode `apply` no
 
 ```bash
 aws ec2 create-default-vpc
-terraform apply
+terraform apply -auto-approve
 ```
 
 </blockquote>
@@ -100,6 +164,10 @@ terraform output -raw redshift_master_password
 </blockquote>
 </details>
 
+---
+
+<a id="passo-2"></a>
+
 ### 2. Carregar o dataset TPC-H
 
 ```bash
@@ -107,14 +175,19 @@ cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data
 bash scripts/load_tpch.sh
 ```
 
-Tempo típico: **3 a 5 minutos**. O script:
+Tempo típico: **~1m40**. O script:
 
-1. Lê `terraform output` para descobrir bucket e região
-2. Baixa as 8 tabelas `.tbl` do TPC-H SF1 de `s3://redshift-downloads/TPC-H/2.18/1GB/` (bucket público da AWS)
-3. Converte cada uma para Parquet (snappy) localmente com Python + pyarrow
-4. **Gera a tabela sintética `customer_history`** — essencial para o Lab 03.1 simular SCD Tipo 2
-5. Envia tudo para `s3://<bucket>/raw/tpch/<tabela>/`
-6. Registra as 9 tabelas no Glue Data Catalog (para visualização no console)
+1. Lê `terraform output` para descobrir bucket de destino, região e Glue DB
+2. Copia (S3-to-S3, server-side, **em paralelo**) as 8 tabelas `.tbl` do TPC-H SF10 de `s3://redshift-downloads/TPC-H/2.18/10GB/` (bucket público da AWS) direto para `s3://<bucket-aluno>/raw/tpch/`
+3. Baixa apenas o `customer.tbl` (232 MB) localmente para gerar a tabela sintética `customer_history` (75k reclassificações com seed 42, essencial para o SCD2 do Lab 03.2)
+4. Faz upload do `customer_history.tbl` para o S3
+5. Registra as 9 tabelas no Glue Data Catalog (formato CSV `|` delimitado)
+
+<!-- PRINT SUGERIDO: img/load_tpch_listagem_final.png
+     Listagem final do load_tpch.sh: 9 objetos no S3, total 10.4 GiB,
+     com tempos individuais de cada copia paralela (lineitem ~50s).
+     Confirma que a carga terminou inteira. -->
+![](img/load_tpch_listagem_final.png)
 
 <details>
 <summary><b>💡 Clique para entender: o que é customer_history e por que ela é injetada?</b></summary>
@@ -129,7 +202,7 @@ customer_history
 └── valid_from       (data em que o novo segmento entrou em vigor)
 ```
 
-O script sorteia **5% dos clientes** (semente fixa 42, todos os alunos obtêm o mesmo conjunto) e atribui a cada um uma data de mudança entre 1996-01-01 e 1998-12-31 — ou seja, **posterior ao ano 1995** que é o recorte da query-âncora do Lab 03.1.
+O script sorteia **5% dos clientes** (semente fixa 42, todos os alunos obtêm o mesmo conjunto) e atribui a cada um uma data de mudança entre 1996-01-01 e 1998-12-31 — ou seja, **posterior ao ano 1995** que é o recorte da query-âncora do Lab 03.2.
 
 Isso cria um cenário real: "o cliente X comprou em 1995 quando era `AUTOMOBILE`, depois virou `BUILDING` em 1997". Ao modelar com SCD Tipo 1, a venda de 1995 é reatribuída ao segmento atual (`BUILDING`). Ao modelar com SCD Tipo 2, ela permanece atribuída ao segmento da época (`AUTOMOBILE`). Os números divergem. Esse é o ponto.
 
@@ -151,21 +224,35 @@ bash scripts/load_tpch.sh
 </blockquote>
 </details>
 
+---
+
+<a id="passo-3"></a>
+
 ### 3. Conectar no Redshift
 
 Dois caminhos suportados. Escolha um:
 
 #### Caminho A — Query Editor v2 (recomendado)
 
-1. No console AWS, abra **Redshift → Query Editor v2**
-2. Clique no cluster `dw-aula3-<short_id>`
-3. **Database user and password** → use `dwadmin` e a senha de (executar no terminal do Codespaces):
+<!-- PRINT SUGERIDO: img/qev2_create_connection.png
+     Tela "Create connection" do Query Editor v2 com o cluster
+     dw-aula3-<short_id> selecionado, "Database user and password"
+     marcado, dwadmin no usuario, dw_mba no banco. Onde o aluno
+     mais erra na primeira vez. -->
+![](img/qev2_create_connection.png)
 
-   ```bash
-   cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-   terraform output -raw redshift_master_password
-   ```
-4. Database: `dw_mba`
+**3.1.** No console AWS, abra **Redshift → Query Editor v2**
+
+**3.2.** Clique no cluster `dw-aula3-<short_id>`
+
+**3.3.** **Database user and password** → use `dwadmin` e a senha de (executar no terminal do Codespaces):
+
+```bash
+cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
+terraform output -raw redshift_master_password
+```
+
+**3.4.** Database: `dw_mba`
 
 #### Caminho B — psql no Codespaces
 
@@ -190,14 +277,15 @@ SELECT current_user, current_database(), version();
 
 Verifique, em ordem:
 
-1. O cluster está `available`:
+- **(a)** O cluster está `available`:
 
    ```bash
    aws redshift describe-clusters --query 'Clusters[*].ClusterStatus' --output text
    ```
 
-2. O Security Group permite sua origem. Se `allowed_cidr_blocks = 0.0.0.0/0` (padrão do lab), isso não deveria bloquear. Se você restringiu, confira se seu IP público atual está incluído.
-3. A senha está correta. Pegue-a de novo, inteira e sem espaços:
+- **(b)** O Security Group permite sua origem. Se `allowed_cidr_blocks = 0.0.0.0/0` (padrão do lab), isso não deveria bloquear. Se você restringiu, confira se seu IP público atual está incluído.
+
+- **(c)** A senha está correta. Pegue-a de novo, inteira e sem espaços:
 
    ```bash
    cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
@@ -207,35 +295,16 @@ Verifique, em ordem:
 </blockquote>
 </details>
 
-### 4. Prossiga para o Lab 03.1
-
-```bash
-cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga
-cat README.md
-```
-
 ---
 
-## Durante a aula: pausar o cluster para economizar budget
+<a id="passo-4"></a>
 
-Se a aula tem intervalo longo, **pause o cluster** em vez de deletar. Isso preserva dados e schemas, mas zera o custo de computação.
+### 4. Prossiga para o Lab 03.2
 
-```bash
-cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-aws redshift pause-cluster \
-  --cluster-identifier "$(terraform output -raw redshift_cluster_identifier)"
-```
+Abra o próximo lab: **[Lab 03.2 — Do OLTP ao Star Schema](../02-modelagem-e-carga/README.md)**.
 
-Para retomar:
-
-```bash
-cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-aws redshift resume-cluster \
-  --cluster-identifier "$(terraform output -raw redshift_cluster_identifier)"
-```
-
-> [!WARNING]
-> Um cluster pausado **ainda cobra storage** (RMS no S3 gerenciado), mas não computação. O `terraform destroy` abaixo é a única forma de parar o custo completamente.
+> [!CAUTION]
+> **Se você não vai prosseguir agora para o Lab 03.2**, rode `terraform destroy` antes de fechar a aula. O cluster Redshift cobra mesmo ocioso (~$0,51/h). Veja a seção [Ao final da aula: destruir tudo](#ao-final-da-aula-destruir-tudo) abaixo.
 
 ---
 
@@ -243,10 +312,13 @@ aws redshift resume-cluster \
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-terraform destroy
+terraform destroy -auto-approve
 ```
 
-Tempo típico: **3 a 5 minutos**. Remove cluster, subnet group, SG, bucket (com `force_destroy`), Glue database.
+Tempo típico: **3 a 5 minutos**. Remove cluster, subnet group, SG, bucket (com `force_destroy`), Glue database. A flag `-auto-approve` pula a confirmação manual.
+
+> [!NOTE]
+> O `terraform destroy` deixa o arquivo `terraform.tfstate` no bucket `base-config-*` em estado vazio (sem recursos). Isso é correto — o state vira o registro auditável de que o ambiente foi desprovisionado. Não apague o bucket `base-config-*`, ele é usado por outros labs do MBA.
 
 > [!CAUTION]
 > **Não esqueça deste passo.** Um cluster `ra3.large` esquecido consome budget do Learner Lab rapidamente. Aluno deve rodar `terraform destroy` **antes** de fechar o Codespaces ao final da sessão.

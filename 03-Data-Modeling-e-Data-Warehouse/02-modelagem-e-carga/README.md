@@ -1,16 +1,52 @@
-# 03.1 - Do OLTP ao Star Schema: três modelagens, três respostas
+# 03.2 - Do OLTP ao Star Schema: três modelagens, três respostas
 
-**Antes de começar, execute os passos abaixo para configurar o ambiente caso não tenha feito isso ainda na aula de HOJE: [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)**
+> **O cenário que vamos viver hoje.**
+> Imagine que você é engenheiro de dados na **TPCH Trading**, uma distribuidora B2B com sede em São Paulo. Sua diretora financeira, **Marina**, te procura no Slack:
+>
+> > *— "Preciso fechar a apresentação para o conselho de segunda. Quanto faturamos em 1995, **somente com clientes do segmento AUTOMOBILE**, dividido por região? O CEO vai abrir falando dos 30 anos da empresa e quer destacar essa receita."*
+>
+> Parece simples. Você roda a query no banco operacional. Resposta sai em 8 segundos. Manda o número para Marina.
+>
+> Na segunda às 9h, antes da reunião, ela escreve de novo:
+>
+> > *— "Você consegue rodar essa mesma query usando a base do data warehouse novo? O time de BI está montando os dashboards lá e quero validar se os números batem."*
+>
+> Você roda no DW. **O número não bate.**
+>
+> Ela liga.
 
-**Antes de começar também, execute o passo de provisionamento da infraestrutura: [01-provisionamento](../01-provisionamento/README.md). Ele sobe cluster Redshift, bucket S3 e carrega o TPC-H via Terraform + shell script. Este laboratório assume que o cluster está `available` e o dataset já está em `s3://dw-lab-<ACCOUNT_ID>/raw/tpch/`.**
+Esse é o cenário que vamos explorar juntos durante a aula. Você vai acompanhar o professor passo a passo, respondendo **exatamente a mesma pergunta de negócio** em três modelagens diferentes da mesma base, observar que os números divergem, e entender por que cada divergência tem uma justificativa legítima. No final, vamos preencher juntos um `DECISION.md` que justifica a escolha para Marina e o conselho — **simulando o que um engenheiro de dados produz na vida real quando precisa defender uma escolha de modelagem**.
 
-Neste laboratório, você vai responder **exatamente a mesma pergunta de negócio** em três modelagens diferentes da mesma base, observar que os números divergem, e entender por que cada divergência tem uma justificativa legítima. No final, você registra a sua escolha em um `DECISION.md`, simulando o que um engenheiro de dados produz na vida real.
+> [!WARNING]
+> **Pré-requisitos obrigatórios antes de começar:**
+>
+> - [ ] Credenciais AWS do Academy atualizadas no Codespaces — ver [Preparando Credenciais](../../00-create-codespaces/Inicio-de-aula.md)
+> - [ ] Cluster Redshift `dw-aula3-<short_id>` em status `available` (Lab [03.1 · Provisionamento](../01-provisionamento/README.md) executado)
+> - [ ] Dataset TPC-H carregado em `s3://dw-lab-<ACCOUNT_ID>/raw/tpch/` (`load_tpch.sh` rodado com sucesso)
+> - [ ] Você consegue conectar no Query Editor v2 ou via psql no Codespaces
+>
+> **Valide rapidamente listando os 9 prefixos esperados no S3:**
+>
+> ```bash
+> aws s3 ls "s3://dw-lab-$(aws sts get-caller-identity --query Account --output text)/raw/tpch/"
+> ```
+>
+> Esperado: `customer/`, `customer_history/`, `lineitem/`, `nation/`, `orders/`, `part/`, `partsupp/`, `region/`, `supplier/`. Se faltar algum, volte ao Lab 03.1 e rode `bash scripts/load_tpch.sh` novamente.
+
+## O que você vai fazer
+
+Três schemas no mesmo cluster Redshift, a mesma query-âncora rodada nos três, **três números diferentes**. Tempo estimado: **75–100 min** em cluster `ra3.large` × 2 nós (execução pura ~14 min + tempo para você ler, copiar comandos, observar resultados e refletir; o `COPY` da Modelagem A leva ~9 min só para `lineitem` por causa dos 60M linhas em SF10).
+
+- **Modelagem A** (`oltp_mirror`) — cópia fiel do OLTP → produz `N₁`
+- **Modelagem B** (`dw_star`) — star schema SCD Tipo 1 → produz `N₂ ≈ N₁`
+- **Modelagem C** (`dw_star_scd2`) — star schema SCD Tipo 2 → produz `N₃ ≠ N₁`
+- **Decisão final** — preencher `DECISION.md` (estilo ADR) escolhendo qual modelagem você levaria para produção
 
 ## Arquitetura
 
 ![Arquitetura das três modelagens](img/arquitetura-03-1.png)
 
-O diagrama mostra o fluxo: (1) o dataset TPC-H carregado no Lab 03.0 alimenta via `COPY` o schema `oltp_mirror` (Modelagem A), (2) a partir dele são derivados o `dw_star` com SCD1 (Modelagem B) e o `dw_star_scd2` com SCD2 (Modelagem C), e (3) a mesma query-âncora rodada nos três schemas produz três números (N₁, N₂ ≈ N₁, N₃ ≠ N₁). A faixa inferior explica **por que** N₃ diverge.
+O diagrama mostra o fluxo: (1) o dataset TPC-H carregado no Lab 03.1 alimenta via `COPY` o schema `oltp_mirror` (Modelagem A), (2) a partir dele são derivados o `dw_star` com SCD1 (Modelagem B) e o `dw_star_scd2` com SCD2 (Modelagem C), e (3) a mesma query-âncora rodada nos três schemas produz três números (N₁, N₂ ≈ N₁, N₃ ≠ N₁). A faixa inferior explica **por que** N₃ diverge.
 
 Fonte editável: [`img/arquitetura-03-1.drawio`](img/arquitetura-03-1.drawio).
 
@@ -29,6 +65,45 @@ Ao final deste laboratório, você terá implementado três modelagens do mesmo 
 
 > [!TIP]
 > Sempre que encontrar um bloco com o título **💡 Clique para entender**, abra esse trecho. Ele traz explicação detalhada do comando, contexto prático da aula e links oficiais para aprofundamento.
+
+## Mapa do lab
+
+| Parte | O que você faz | Passos | Tempo |
+|-------|----------------|--------|-------|
+| [Parte 1](#parte-1---acessando-o-redshift-pelo-query-editor-v2) | Acessa o Redshift pelo Query Editor v2 | [1](#passo-1) · [2](#passo-2) · [3](#passo-3) · [4](#passo-4) | ~5 min |
+| [Parte 2](#parte-2---modelagem-a-espelho-do-oltp) | Modelagem A — espelho OLTP → produz `N₁` | [5](#passo-5) · [6](#passo-6) · [7](#passo-7) · [8](#passo-8) · [9](#passo-9) · [10](#passo-10) | ~30 min |
+| [Parte 3](#parte-3---modelagem-b-star-schema-com-scd-tipo-1) | Modelagem B — star schema SCD1 → produz `N₂` | [11](#passo-11) · [12](#passo-12) · [13](#passo-13) · [14](#passo-14)([a](#passo-14a)·[b](#passo-14b)·[c](#passo-14c)·[d](#passo-14d)) · [15](#passo-15) · [16](#passo-16) · [17](#passo-17) · [18](#passo-18) | ~25 min |
+| [Parte 4](#parte-4---modelagem-c-star-schema-com-scd-tipo-2) | Modelagem C — star schema SCD2 → produz `N₃` | [19](#passo-19) · [20](#passo-20) · [21](#passo-21) · [22](#passo-22) · [23](#passo-23) · [24](#passo-24) · [25](#passo-25) | ~20 min |
+| [Parte 5](#parte-5---comparando-os-três-resultados) | Compara `N₁`, `N₂`, `N₃` e escreve `DECISION.md` | [26](#passo-26) · [27](#passo-27) · [28](#passo-28) | ~10 min |
+
+> [!TIP]
+> Se travou em algum passo, você pode pular direto: clique no número do passo na coluna **Passos** acima.
+
+<details>
+<summary><b>💡 Não viu a aula ainda? O que é um Data Warehouse em 3 parágrafos</b></summary>
+<blockquote>
+
+Um **Data Warehouse (DW)** é um banco de dados pensado para **responder perguntas de negócio**, não para atender transações. A mesma tabela `orders` em um banco OLTP (sistema de checkout) responde a perguntas como "qual o status do pedido 12345?". No DW, ela entra em um **fato** `f_vendas` que responde "qual foi a receita por região × mês × segmento em 1995?".
+
+A diferença não é cosmética — é de **escolha física e lógica**:
+
+| Dimensão | OLTP (transacional) | DW (analítico) |
+|----------|---------------------|----------------|
+| Otimizado para | leituras/escritas pontuais (1 pedido) | leituras agregadas (milhões de pedidos) |
+| Modelagem | 3NF, muitas tabelas pequenas | star/snowflake, poucas tabelas largas |
+| Armazenamento | row-based | columnar (Redshift, BigQuery, Snowflake) |
+| Join | chave primária, 1 registro | chave surrogate, milhões de registros |
+| Atualização | constante (milhares por segundo) | em lote (diário/horário) |
+| Query típica | `SELECT * FROM orders WHERE id = ?` | `SELECT SUM(revenue) GROUP BY region, year` |
+
+Neste lab você vai sentir essa diferença **numericamente**: a mesma pergunta ("quanto faturou o segmento AUTOMOBILE em 1995?") produz **três respostas diferentes** dependendo da escolha de modelagem. Não porque uma está errada, mas porque cada modelagem materializa um contrato semântico distinto. Esse é o ponto central do curso.
+
+Referências rápidas:
+- *The Data Warehouse Toolkit* (Kimball) — bíblia de modelagem dimensional
+- [Amazon Redshift Best Practices — data modeling](https://docs.aws.amazon.com/redshift/latest/dg/c_best-practices-choose-sort-keys.html)
+
+</blockquote>
+</details>
 
 ---
 
@@ -58,7 +133,7 @@ Os três diagramas abaixo mostram **exatamente o mesmo dado físico** representa
 
 - Na **Modelagem A**, não existe fato nem dimensão — só 8 tabelas relacionais espelhando o OLTP. A lógica analítica é inteiramente construída na query.
 - Nas **Modelagens B e C**, os conceitos `FATO` e `DIMENSÃO` aparecem explicitamente (anotados nos diagramas). A fato concentra medidas; as dimensões concentram contexto descritivo.
-- A diferença entre B e C está **em uma única tabela**: `dim_customer`. No B ela tem 150k linhas (SCD1); no C tem ~157k linhas versionadas (SCD2) com colunas temporais.
+- A diferença entre B e C está **em uma única tabela**: `dim_customer`. No B ela tem 1,5M linhas (SCD1); no C tem ~1,575M linhas versionadas (SCD2) com colunas temporais.
 
 #### Modelagem A · `oltp_mirror` (relacional, sem distinção fato/dimensão)
 
@@ -282,6 +357,10 @@ flowchart LR
 
 Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de consultas do console AWS, com o banco `dw_mba` selecionado e pronto para receber comandos SQL.
 
+---
+
+<a id="passo-1"></a>
+
 1. Abra o [console do Amazon Redshift Query Editor v2](https://us-east-1.console.aws.amazon.com/sqlworkbench/home?region=us-east-1#/client).
 
 <!-- PRINT SUGERIDO: img/redshift_query_editor_landing.png
@@ -289,12 +368,20 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
      Captura a janela inteira do browser com o editor ainda sem conexão feita. -->
 ![](img/redshift_query_editor_landing.png)
 
+---
+
+<a id="passo-2"></a>
+
 2. Clique com o botão direito no cluster `dw-aula3-<SHORT_ID>` e escolha **Create connection**.
 
 <!-- PRINT SUGERIDO: img/redshift_create_connection.png
      Menu de contexto aberto no cluster, destacando a opção "Create connection".
      Use zoom na árvore lateral esquerda para o cluster + menu aparecerem juntos. -->
 ![](img/redshift_create_connection.png)
+
+---
+
+<a id="passo-3"></a>
 
 3. Na caixa de autenticação, escolha **Database user name and password** e preencha:
    - Database: `dw_mba`
@@ -305,6 +392,10 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
      Caixa de autenticação preenchida (com a senha coberta/borrada).
      Mostra os 3 campos: Database, Username, Password. -->
 ![](img/redshift_connection_form.png)
+
+---
+
+<a id="passo-4"></a>
 
 4. Teste a conexão executando:
 
@@ -330,9 +421,24 @@ Se você chegou até aqui, então:
 
 ## Parte 2 - Modelagem A: espelho do OLTP
 
+> **Vamos começar pelo cenário mais simples**: o time de dados subiu o Redshift na semana passada e a primeira coisa que fez foi **espelhar literalmente** o banco operacional. Sem transformar, sem modelar. É como muitas empresas começam — vamos sentir as consequências disso na pele.
+
+### Por que essa modelagem existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | A empresa migrou para o Redshift e o time de dados quer responder perguntas analíticas **sem** montar nenhum modelo dimensional novo. Espelham o OLTP literalmente, banco por banco, tabela por tabela. |
+| **Pergunta que ela responde bem** | *"Qual é o status atual do pedido X?"* — o DW vira um leitor secundário do OLTP, sem perda de fidelidade. |
+| **Pergunta que ela responde mal** | *"Qual a receita por região × mês × segmento em 1995?"* — exige 5 joins entre tabelas grandes, demora muito, e é difícil garantir consistência semântica entre analistas (cada um aplica fórmulas diferentes). |
+| **Quando acontece na vida real** | Nas primeiras semanas após "subir o DW" — antes de modelar. É um modo de transição comum que muitas empresas mantêm permanentemente por inércia. |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, as 8 tabelas do TPC-H estarão criadas no schema `oltp_mirror` e carregadas via `COPY FROM S3`. A query-âncora terá produzido o primeiro número (`N₁`).
+Ao final desta parte, as 8 tabelas do TPC-H estarão criadas no schema `oltp_mirror` e carregadas via `COPY FROM S3`. A query-âncora terá produzido o **primeiro número (`N₁`)** — o número que respondemos para Marina na primeira tentativa.
+
+---
+
+<a id="passo-5"></a>
 
 5. Crie o schema e as 8 tabelas TPC-H. Este schema reproduz o modelo relacional operacional, sem qualquer transformação analítica:
 
@@ -472,6 +578,10 @@ Documentação oficial:
 </blockquote>
 </details>
 
+---
+
+<a id="passo-6"></a>
+
 6. Antes de carregar dados, descubra seu Account ID para montar a URL do S3:
 
 ```sql
@@ -482,49 +592,103 @@ SELECT current_user_id() AS user, current_aws_account() AS account_id;
      Resultado da query mostrando o account_id. Usuário vai copiar esse valor para os próximos COPY. -->
 ![](img/redshift_account_id.png)
 
-7. Carregue as 8 tabelas usando `COPY FROM S3`. **Substitua `<SEU_ACCOUNT_ID>` pelo valor obtido acima** antes de executar:
+---
+
+<a id="passo-7"></a>
+
+7. Carregue as 8 tabelas usando `COPY FROM S3`. **Em todos os blocos abaixo, substitua `<SEU_ACCOUNT_ID>` pelo valor obtido no passo 6**. Dividimos em 3 lotes: pequenas → médias → grandes (fatos). Rode e valide cada lote antes de seguir — é mais fácil descobrir qual tabela falhou se algo der errado.
+
+**Lote 1/3 — tabelas de referência (rápido, 2 tabelas, poucas linhas):**
 
 ```sql
 COPY oltp_mirror.region
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/region/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 COPY oltp_mirror.nation
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/nation/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
+-- Checkpoint do lote 1: deve retornar region=5, nation=25
+SELECT 'region' AS tbl, COUNT(*) AS linhas FROM oltp_mirror.region
+UNION ALL SELECT 'nation', COUNT(*) FROM oltp_mirror.nation;
+```
+
+<!-- PRINT SUGERIDO: img/copy_lote_1_sucesso.png
+     Mensagens dos 2 COPYs ("INFO: Load into table 'region' completed, 5
+     record(s) loaded...") + resultado do checkpoint mostrando region=5,
+     nation=25. Primeiro COPY do lab — aluno reconhece o padrao para os
+     proximos 7. -->
+![](img/copy_lote_1_sucesso.png)
+
+**Lote 2/3 — mestres (médio, 4 tabelas, até 800k linhas):**
+
+```sql
 COPY oltp_mirror.customer
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/customer/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 COPY oltp_mirror.supplier
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/supplier/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 COPY oltp_mirror.part
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/part/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 COPY oltp_mirror.partsupp
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/partsupp/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
+-- Checkpoint do lote 2: customer=1500000, supplier=100000, part=2000000, partsupp=8000000
+SELECT 'customer' AS tbl, COUNT(*) AS linhas FROM oltp_mirror.customer
+UNION ALL SELECT 'supplier', COUNT(*) FROM oltp_mirror.supplier
+UNION ALL SELECT 'part',     COUNT(*) FROM oltp_mirror.part
+UNION ALL SELECT 'partsupp', COUNT(*) FROM oltp_mirror.partsupp;
+```
+
+**Lote 3/3 — transacionais (lento, 2 tabelas, até 6M linhas):**
+
+```sql
 COPY oltp_mirror.orders
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/orders/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 COPY oltp_mirror.lineitem
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/lineitem/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
+
+-- Checkpoint do lote 3: orders=15.000.000, lineitem=59.986.052
+SELECT 'orders'   AS tbl, COUNT(*) AS linhas FROM oltp_mirror.orders
+UNION ALL SELECT 'lineitem', COUNT(*) FROM oltp_mirror.lineitem;
 ```
+
+> [!TIP]
+> `lineitem` é a maior tabela (~7,2 GB de texto SF10, ~60M linhas) e demora **~6 min** no cluster com 2 nós + `COMPUPDATE OFF`. `orders` (~15M linhas) leva **~1m30**. Se parecer travado, confira no console Redshift se a query ainda está rodando — não cancele antes.
 
 <details>
 <summary><b>💡 Clique para entender: o comando COPY no Redshift</b></summary>
@@ -536,7 +700,13 @@ O `COPY` é a forma canônica de carregar grandes volumes para o Redshift. Ele �
 
 - `FROM 's3://...'` aponta para o prefixo no S3. O Redshift lista todos os arquivos sob o prefixo e distribui entre os slices.
 - `IAM_ROLE default` diz "use a role padrão do cluster". No Terraform do Lab 03, configuramos `default_iam_role_arn = LabRole`, então nunca precisamos colar ARN explícito.
-- `FORMAT AS PARQUET` informa o formato. O Redshift deduz colunas/tipos pelo schema Parquet e faz mapping para as colunas da tabela pelo nome.
+- `FORMAT AS CSV DELIMITER '|'` informa que o arquivo é texto delimitado por `|` — formato nativo do TPC-H. Cada linha do arquivo vira uma linha da tabela; ordem das colunas no arquivo deve bater com a ordem no `CREATE TABLE`.
+- `COMPUPDATE OFF` desliga a análise automática de encoding de colunas. Em tabelas pequenas isso é útil para o Redshift escolher compressão; em tabelas grandes a análise demora mais que a carga em si. Para laboratório (cluster descartável), sempre desligar.
+- `STATUPDATE OFF` desliga atualização automática de estatísticas. Vamos rodar `ANALYZE` explicitamente no passo seguinte — fica mais didático e mais rápido.
+
+### Por que CSV e não Parquet
+
+O dataset TPC-H está em formato `.tbl` (texto delimitado por `|`) no bucket público da AWS. Mantemos o formato original — copiar para o bucket do aluno é S3-to-S3 e leva ~2 min em vez dos ~30 min que pandas+pyarrow gastariam para converter para Parquet localmente. **No mundo real**, ETLs em produção convertem para Parquet uma vez e armazenam — esse é o ponto da próxima aula (Lakehouse).
 
 ### Por que não usar `INSERT SELECT` a partir de uma tabela externa
 
@@ -544,14 +714,20 @@ Em ambientes onde Spectrum está disponível, você poderia criar uma external t
 
 ### Paralelismo implícito
 
-Cada slice do cluster puxa uma parte dos arquivos do S3. Mais arquivos Parquet = mais paralelismo. Nosso script `load_tpch.sh` gera 1 Parquet por tabela, então o paralelismo é limitado — em produção, split em vários arquivos maximiza throughput.
+Cada slice do cluster puxa uma parte do arquivo via byte-range. Com 2 nós × 2 slices/nó = **4 slices** processando o `lineitem.tbl` em paralelo. Em produção, splitar `lineitem` em N arquivos pequenos maximiza ainda mais o throughput — o Redshift recomenda 1 arquivo por slice no mínimo.
 
 Documentação oficial:
+
 - [COPY from Amazon S3](https://docs.aws.amazon.com/redshift/latest/dg/copy-parameters-data-source-s3.html)
-- [COPY from columnar data formats](https://docs.aws.amazon.com/redshift/latest/dg/copy-usage_notes-copy-from-columnar.html)
+- [COPY from CSV](https://docs.aws.amazon.com/redshift/latest/dg/copy-usage_notes-copy-from-text.html)
+- [Loading data — best practices](https://docs.aws.amazon.com/redshift/latest/dg/c_loading-data-best-practices.html)
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-8"></a>
 
 8. Atualize as estatísticas do otimizador (passo rápido mas importante para os planos subsequentes):
 
@@ -566,24 +742,28 @@ ANALYZE oltp_mirror.orders;
 ANALYZE oltp_mirror.lineitem;
 ```
 
-9. Confirme que os volumes batem com o TPC-H SF1:
+---
+
+<a id="passo-9"></a>
+
+9. Confirme que os volumes batem com o TPC-H SF10. **Essa é sua primeira âncora de confiança** — se os números aqui não batem, **não siga adiante**. Qualquer divergência na query-âncora (passo 10) vai ser causada por problema aqui, e você gasta 20 minutos debugando a query para descobrir que a carga falhou:
 
 ```sql
-SELECT 'region'   AS tbl, COUNT(*) AS linhas, 5        AS esperado FROM oltp_mirror.region
+SELECT 'region'   AS tbl, COUNT(*) AS linhas,         5 AS esperado FROM oltp_mirror.region
 UNION ALL
-SELECT 'nation'   AS tbl, COUNT(*) AS linhas, 25       AS esperado FROM oltp_mirror.nation
+SELECT 'nation'   AS tbl, COUNT(*) AS linhas,        25 AS esperado FROM oltp_mirror.nation
 UNION ALL
-SELECT 'customer' AS tbl, COUNT(*) AS linhas, 150000   AS esperado FROM oltp_mirror.customer
+SELECT 'customer' AS tbl, COUNT(*) AS linhas,   1500000 AS esperado FROM oltp_mirror.customer
 UNION ALL
-SELECT 'supplier' AS tbl, COUNT(*) AS linhas, 10000    AS esperado FROM oltp_mirror.supplier
+SELECT 'supplier' AS tbl, COUNT(*) AS linhas,    100000 AS esperado FROM oltp_mirror.supplier
 UNION ALL
-SELECT 'part'     AS tbl, COUNT(*) AS linhas, 200000   AS esperado FROM oltp_mirror.part
+SELECT 'part'     AS tbl, COUNT(*) AS linhas,   2000000 AS esperado FROM oltp_mirror.part
 UNION ALL
-SELECT 'partsupp' AS tbl, COUNT(*) AS linhas, 800000   AS esperado FROM oltp_mirror.partsupp
+SELECT 'partsupp' AS tbl, COUNT(*) AS linhas,   8000000 AS esperado FROM oltp_mirror.partsupp
 UNION ALL
-SELECT 'orders'   AS tbl, COUNT(*) AS linhas, 1500000  AS esperado FROM oltp_mirror.orders
+SELECT 'orders'   AS tbl, COUNT(*) AS linhas,  15000000 AS esperado FROM oltp_mirror.orders
 UNION ALL
-SELECT 'lineitem' AS tbl, COUNT(*) AS linhas, 6001215  AS esperado FROM oltp_mirror.lineitem
+SELECT 'lineitem' AS tbl, COUNT(*) AS linhas,  59986052 AS esperado FROM oltp_mirror.lineitem
 ORDER BY tbl;
 ```
 
@@ -611,10 +791,14 @@ A causa mais comum é o bucket S3 estar vazio ou com caminho diferente. Confirme
 aws s3 ls "s3://dw-lab-$(aws sts get-caller-identity --query Account --output text)/raw/tpch/" --recursive
 ```
 
-Se o bucket estiver vazio, volte para o Lab 03.0 e rode `bash scripts/load_tpch.sh` novamente.
+Se o bucket estiver vazio, volte para o Lab 03.1 e rode `bash scripts/load_tpch.sh` novamente.
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-10"></a>
 
 10. Execute a query-âncora pela primeira vez, no modelo OLTP:
 
@@ -673,9 +857,24 @@ Se você chegou até aqui, então:
 
 ## Parte 3 - Modelagem B: star schema com SCD Tipo 1
 
+> **Marina não está convencida com o `N₁` que produzimos**: a query foi lenta e os analistas internos da TPCH Trading reclamam que cada um chega num número diferente quando aplica a fórmula de receita líquida. **Vamos agora construir um star schema dedicado** — modelo dimensional clássico Kimball — e rodar a mesma pergunta nele.
+
+### Por que essa modelagem existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | Analistas reclamam que rodar a query-âncora direto no `oltp_mirror` demora 30 segundos e cada um aplica fórmulas diferentes para "receita líquida". Time de BI propõe **um modelo dimensional dedicado** com fato `f_vendas` e dimensões. |
+| **Pergunta que ela responde bem** | *"Receita por região × mês × segmento em 1995"* — a fato já tem grain ideal (1 linha = 1 item de pedido) e medidas materializadas (`vl_receita_liquida` calculada uma vez, lida muitas). |
+| **Pergunta que ela responde mal** | *"Qual era o segmento do cliente X em 1995, antes da reclassificação?"* — SCD Tipo 1 sobrescreve atributos quando muda. Histórico se perde. |
+| **Quando acontece na vida real** | Modelo "default" da maioria dos warehouses — Kimball clássico. Funciona em 80% dos casos onde o atributo dimensional **não muda** ou onde **só importa o valor atual**. |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, o schema `dw_star` terá 5 dimensões (`dim_data`, `dim_customer`, `dim_produto`, `dim_supplier`, `dim_geografia`) e uma fato (`f_vendas`), todas com surrogate keys e estratégia física adequada. A query-âncora terá produzido `N₂`.
+Ao final desta parte, o schema `dw_star` terá 5 dimensões (`dim_data`, `dim_customer`, `dim_produto`, `dim_supplier`, `dim_geografia`) e uma fato (`f_vendas`), todas com surrogate keys e estratégia física adequada. A query-âncora terá produzido **`N₂`** — o número que o time de BI está mostrando no dashboard novo.
+
+---
+
+<a id="passo-11"></a>
 
 11. Crie o schema:
 
@@ -704,6 +903,10 @@ Em um warehouse real, o grain fica documentado no catálogo de dados, no dbt `de
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-12"></a>
 
 12. Crie e popule a `dim_data`, cobrindo 1992-01-01 a 1998-12-31:
 
@@ -752,6 +955,10 @@ FROM datas;
 
 ANALYZE dw_star.dim_data;
 ```
+
+---
+
+<a id="passo-13"></a>
 
 13. Valide que a dimensão foi populada corretamente:
 
@@ -827,7 +1034,15 @@ O restante das colunas do `INSERT` permanece igual.
 </blockquote>
 </details>
 
-14. Crie e popule as 4 dimensões restantes (geografia, customer SCD1, produto, supplier):
+---
+
+<a id="passo-14"></a>
+
+14. Crie e popule as 4 dimensões restantes, **uma por vez**. Valide o retorno do `SELECT COUNT(*)` de cada antes de seguir para a próxima — é comum esquecer de rodar o `INSERT` depois do `CREATE`.
+
+<a id="passo-14a"></a>
+
+**14a · `dim_geografia`** — achata `nation + region` em uma única tabela (star classic, não snowflake):
 
 ```sql
 CREATE TABLE dw_star.dim_geografia (
@@ -850,6 +1065,15 @@ JOIN oltp_mirror.region r ON r.r_regionkey = n.n_regionkey;
 
 ANALYZE dw_star.dim_geografia;
 
+-- Checkpoint: esperado 25 linhas (25 nações, cada uma referenciando 1 de 5 regiões)
+SELECT COUNT(*) AS linhas FROM dw_star.dim_geografia;
+```
+
+<a id="passo-14b"></a>
+
+**14b · `dim_customer` (SCD Tipo 1)** — sobrescreve o segmento atual:
+
+```sql
 CREATE TABLE dw_star.dim_customer (
     customer_sk  BIGINT        NOT NULL,
     c_custkey    BIGINT        NOT NULL,
@@ -873,6 +1097,15 @@ FROM oltp_mirror.customer c;
 
 ANALYZE dw_star.dim_customer;
 
+-- Checkpoint: esperado 1.500.000 linhas (1:1 com oltp_mirror.customer)
+SELECT COUNT(*) AS linhas FROM dw_star.dim_customer;
+```
+
+<a id="passo-14c"></a>
+
+**14c · `dim_produto`** — achata `part` com atributos descritivos:
+
+```sql
 CREATE TABLE dw_star.dim_produto (
     produto_sk       BIGINT        NOT NULL,
     p_partkey        BIGINT        NOT NULL,
@@ -902,6 +1135,15 @@ FROM oltp_mirror.part p;
 
 ANALYZE dw_star.dim_produto;
 
+-- Checkpoint: esperado 2.000.000 linhas
+SELECT COUNT(*) AS linhas FROM dw_star.dim_produto;
+```
+
+<a id="passo-14d"></a>
+
+**14d · `dim_supplier`**:
+
+```sql
 CREATE TABLE dw_star.dim_supplier (
     supplier_sk   BIGINT        NOT NULL,
     s_suppkey     BIGINT        NOT NULL,
@@ -922,6 +1164,9 @@ SELECT
 FROM oltp_mirror.supplier s;
 
 ANALYZE dw_star.dim_supplier;
+
+-- Checkpoint: esperado 100.000 linhas
+SELECT COUNT(*) AS linhas FROM dw_star.dim_supplier;
 ```
 
 <details>
@@ -955,6 +1200,10 @@ Quando a dimensão normalizada é **gigante** (milhões de linhas com hierarquia
 </blockquote>
 </details>
 
+---
+
+<a id="passo-15"></a>
+
 15. Confirme contagens:
 
 ```sql
@@ -970,12 +1219,16 @@ SELECT 'dim_supplier',  COUNT(*) FROM dw_star.dim_supplier
 ORDER BY dim;
 ```
 
-Esperado: dim_data=2557, dim_geografia=25, dim_customer=150000, dim_produto=200000, dim_supplier=10000.
+Esperado: dim_data=2557, dim_geografia=25, dim_customer=1500000, dim_produto=2000000, dim_supplier=100000.
 
 <!-- PRINT SUGERIDO: img/dw_star_dims_loaded.png
      Resultado das 5 dimensões com contagem correspondente.
      Evidência de que o CTAS das dimensões funcionou. -->
 ![](img/dw_star_dims_loaded.png)
+
+---
+
+<a id="passo-16"></a>
 
 16. Crie e carregue a tabela fato `f_vendas`:
 
@@ -1051,7 +1304,7 @@ Na fato criamos três colunas de receita calculadas:
 
 ### Por que materializar em vez de calcular on-the-fly
 
-**Contratualização**. Toda query analítica que precisar desses números vai usar a mesma fórmula, sem risco de um time aplicar a fórmula errada. Mudar a coluna do dia para noite não é trivial — é exatamente isso que exploramos no Lab 03.2.
+**Contratualização**. Toda query analítica que precisar desses números vai usar a mesma fórmula, sem risco de um time aplicar a fórmula errada. Mudar a coluna do dia para noite não é trivial — é exatamente isso que exploramos no Lab 03.3.
 
 ### Trade-off de storage
 
@@ -1065,6 +1318,10 @@ Na fato criamos três colunas de receita calculadas:
 
 </blockquote>
 </details>
+
+---
+
+<a id="passo-17"></a>
 
 17. Execute a query-âncora no star schema:
 
@@ -1090,6 +1347,10 @@ ORDER BY receita_liquida_1995_automobile DESC;
 
 > [!TIP]
 > **Anote o valor de `AMERICA` como `N₂`**. Compare com `N₁` — eles devem ser praticamente iguais (pequenas diferenças de arredondamento são esperadas).
+
+---
+
+<a id="passo-18"></a>
 
 18. Compare os planos de execução OLTP vs. Star para sentir a diferença estrutural:
 
@@ -1138,11 +1399,28 @@ Se você chegou até aqui, então:
 
 ## Parte 4 - Modelagem C: star schema com SCD Tipo 2
 
+> **Marina retorna**: *"O `N₂` veio diferente do `N₁`? Como assim? São os MESMOS pedidos, só mudou o jeito de organizar os dados."*
+>
+> Boa pergunta. **A explicação está no histórico que perdemos** quando o SCD Tipo 1 da Modelagem B sobrescreveu o segmento dos clientes que migraram de categoria depois de 1995. Vamos agora construir uma terceira modelagem que **preserva esse histórico** e ver o que acontece com o número.
+
+### Por que essa modelagem existe
+
+| Aspecto | Resposta curta |
+|---------|----------------|
+| **Problema de negócio** | Auditoria pergunta: *"como esse cliente foi classificado em 1995, no momento da venda?"* — não basta saber o segmento atual. Quando o atributo de uma dimensão **muda no tempo** e essa mudança importa para a análise histórica, SCD Tipo 1 deixa o engenheiro descalço. |
+| **Pergunta que ela responde bem** | *"Receita histórica respeitando como o cliente era classificado **na época** da venda"* — cada pedido aponta para a versão do cliente vigente naquela data. |
+| **Pergunta que ela responde mal** | *"Qual a receita do segmento atual, considerando a base de clientes de hoje?"* — cliente que mudou aparece em duas versões; queries que filtram pelo segmento atual precisam adicionar `WHERE is_current = TRUE`. Mais complexidade no SQL. |
+| **Quando acontece na vida real** | Auditoria, compliance, análise retroativa. Setores regulados (financeiro, saúde, seguros) operam com SCD2 por padrão. Em vendas/marketing, costuma-se usar **SCD2 só nos atributos que importam historicamente** (raramente em todos os campos). |
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, o schema `dw_star_scd2` terá uma `dim_customer` versionada com histórico de segmento e uma fato `f_vendas` apontando para a versão vigente na data de cada pedido. A query-âncora vai produzir `N₃`, **diferente** de `N₁` e `N₂`.
+Ao final desta parte, o schema `dw_star_scd2` terá uma `dim_customer` versionada com histórico de segmento e uma fato `f_vendas` apontando para a versão vigente na data de cada pedido. A query-âncora vai produzir **`N₃`**, **diferente** de `N₁` e `N₂` — e a diferença é o que vamos discutir com Marina.
 
-19. Crie o schema e carregue a tabela auxiliar `customer_history`. Essa tabela foi gerada sinteticamente pelo `load_tpch.sh` e contém reclassificações de segmento pós-1995 em 5% dos clientes:
+---
+
+<a id="passo-19"></a>
+
+19. Crie o schema e carregue a tabela auxiliar `customer_history`. Essa tabela foi gerada sinteticamente pelo `load_tpch.sh` e contém reclassificações de segmento pós-1995 em **exatamente ~75.000 clientes** (5% da base SF10 de 1,5M, amostragem determinística com seed `42` — todo aluno obtém o mesmo conjunto):
 
 ```sql
 DROP SCHEMA IF EXISTS dw_star_scd2 CASCADE;
@@ -1150,6 +1428,7 @@ CREATE SCHEMA dw_star_scd2;
 
 CREATE TABLE dw_star_scd2.customer_history (
     c_custkey       BIGINT      NOT NULL,
+    mktsegment_old  VARCHAR(10) NOT NULL,
     mktsegment_new  VARCHAR(10) NOT NULL,
     valid_from      DATE        NOT NULL
 )
@@ -1157,24 +1436,34 @@ DISTSTYLE AUTO
 SORTKEY (c_custkey);
 ```
 
+---
+
+<a id="passo-20"></a>
+
 20. Carregue a `customer_history` (lembre-se de substituir `<SEU_ACCOUNT_ID>`):
 
 ```sql
 COPY dw_star_scd2.customer_history
 FROM 's3://dw-lab-<SEU_ACCOUNT_ID>/raw/tpch/customer_history/'
 IAM_ROLE default
-FORMAT AS PARQUET;
+FORMAT AS CSV DELIMITER '|'
+COMPUPDATE OFF
+STATUPDATE OFF;
 
 ANALYZE dw_star_scd2.customer_history;
 
 SELECT COUNT(*) AS reclassificacoes FROM dw_star_scd2.customer_history;
 ```
 
-O resultado esperado é **~7500 linhas** (5% de 150k clientes).
+O resultado esperado é **exatamente ~75.000 linhas** (5% de 1,5M clientes, seed `42`). Esse número é determinístico — se você obteve outro valor, a carga falhou e você deve revisar o passo anterior antes de seguir.
 
 <!-- PRINT SUGERIDO: img/customer_history_loaded.png
-     Resultado mostrando ~7500 reclassificações carregadas. -->
+     Resultado mostrando ~75.000 reclassificações carregadas. -->
 ![](img/customer_history_loaded.png)
+
+---
+
+<a id="passo-21"></a>
 
 21. Crie a `dim_customer` versionada. Ela terá uma linha para clientes sem histórico e duas linhas para os reclassificados (versão original + versão nova):
 
@@ -1208,13 +1497,16 @@ SELECT
 FROM oltp_mirror.customer c
 WHERE c.c_custkey NOT IN (SELECT c_custkey FROM dw_star_scd2.customer_history);
 
--- Onda 2A: versão ORIGINAL dos reclassificados (vigente ANTES da mudança)
+-- Onda 2A: versão ORIGINAL dos reclassificados (vigente ANTES da mudança).
+-- Atenção: o c_mktsegment do oltp_mirror.customer já foi sobrescrito pelo
+-- load_tpch.sh para refletir o segmento *atual* (pós-reclassificação) — então
+-- o segmento ORIGINAL vem de h.mktsegment_old, não da OLTP.
 INSERT INTO dw_star_scd2.dim_customer
 SELECT
     c.c_custkey * 10 + 1            AS customer_sk,
     c.c_custkey,
     c.c_name,
-    c.c_mktsegment                  AS sg_segmento,
+    h.mktsegment_old                AS sg_segmento,
     c.c_acctbal,
     c.c_nationkey,
     DATE '1900-01-01'               AS valid_from,
@@ -1223,7 +1515,9 @@ SELECT
 FROM oltp_mirror.customer          c
 JOIN dw_star_scd2.customer_history h ON h.c_custkey = c.c_custkey;
 
--- Onda 2B: versão NOVA dos reclassificados (vigente a partir de valid_from)
+-- Onda 2B: versão NOVA dos reclassificados (vigente a partir de valid_from).
+-- O segmento NOVO bate com o c_mktsegment atual da OLTP (o load_tpch atualizou
+-- a OLTP para refletir esta classificação), e tambem bate com h.mktsegment_new.
 INSERT INTO dw_star_scd2.dim_customer
 SELECT
     c.c_custkey * 10 + 2            AS customer_sk,
@@ -1273,6 +1567,10 @@ O cliente 42 foi reclassificado em 1996-08-15. O cliente 43 nunca mudou.
 </blockquote>
 </details>
 
+---
+
+<a id="passo-22"></a>
+
 22. Valide a integridade da `dim_customer` versionada com três checks:
 
 ```sql
@@ -1305,11 +1603,15 @@ SELECT
 FROM dw_star_scd2.dim_customer;
 ```
 
-Os checks 1 e 2 devem retornar **0**. O check 3 deve mostrar ~150k clientes, ~157k linhas totais (150k atuais + 7.5k históricas).
+Os checks 1 e 2 devem retornar **0**. O check 3 deve mostrar 1,5M clientes, ~1,575M linhas totais (1,5M atuais + 75k históricas).
 
 <!-- PRINT SUGERIDO: img/scd2_integrity_checks.png
      Os 3 checks com os resultados corretos. O 0+0 nos dois primeiros é a evidência de que a SCD2 foi construída certinho. -->
 ![](img/scd2_integrity_checks.png)
+
+---
+
+<a id="passo-23"></a>
 
 23. Crie e carregue a fato `f_vendas` apontando para a versão correta do cliente em cada data. O segredo aqui é o **join com range temporal**:
 
@@ -1406,13 +1708,21 @@ Muitos warehouses produtivos encapsulam esse join em uma **view** que esconde a 
 </blockquote>
 </details>
 
-24. Confirme que a fato tem o mesmo grain da B (6.001.215 linhas):
+---
+
+<a id="passo-24"></a>
+
+24. Confirme que a fato tem o mesmo grain da B (59.986.052 linhas):
 
 ```sql
 SELECT COUNT(*) AS linhas FROM dw_star_scd2.f_vendas;
 ```
 
 Se vier menos, algum pedido não encontrou versão vigente do cliente — isso indicaria bug na construção da SCD2.
+
+---
+
+<a id="passo-25"></a>
 
 25. Execute a query-âncora pela terceira vez, agora no modelo SCD2:
 
@@ -1444,25 +1754,47 @@ ORDER BY receita_liquida_1995_automobile DESC;
 
 Se você chegou até aqui, então:
 
-- a `dim_customer` SCD2 tem ~157k linhas versionadas e passa nos 3 checks de integridade
-- a fato `f_vendas` do SCD2 tem 6.001.215 linhas
+- a `dim_customer` SCD2 tem ~1,575M linhas versionadas e passa nos 3 checks de integridade
+- a fato `f_vendas` do SCD2 tem 59.986.052 linhas
 - você anotou `N₃`, que deve diferir de `N₁` e `N₂`
 
 ---
 
 ## Parte 5 - Comparando os três resultados
 
+> **Marina vai entrar na reunião com o conselho em 30 minutos**: *"Você me mandou três números agora. Qual deles eu uso?"*
+>
+> Esta é a parte mais importante do lab. Vamos colocar os 3 números lado a lado, entender por que divergem, e produzir um **documento de decisão** que Marina pode levar para o conselho — explicando qual número escolhemos e por quê.
+
 ### Resultado esperado desta parte
 
-Ao final desta etapa, você terá colocado os 3 números lado a lado, entendido por que divergem, e preenchido um documento de decisão simulando um entregável real de engenharia.
+Ao final desta parte, você terá colocado os 3 números lado a lado, entendido por que divergem, e preenchido um documento de decisão simulando um entregável real de engenharia.
 
-26. Monte a tabela comparativa mentalmente:
+---
 
-| Modelagem | Receita AUTOMOBILE 1995 (AMERICA) | Fonte do segmento |
-|-----------|-----------------------------------|-------------------|
-| A — Espelho OLTP | `N₁ = _______` | Segmento **atual** do cliente |
-| B — Star SCD1 | `N₂ ≈ N₁ = _______` | Segmento **atual** (SCD1 sobrescreve) |
-| C — Star SCD2 | `N₃ = _______` | Segmento que o cliente tinha **em 1995** |
+<a id="passo-26"></a>
+
+26. Monte a tabela comparativa com os valores que você anotou:
+
+| Modelagem | Receita AUTOMOBILE 1995 (AMERICA) | Fonte do segmento | Relação esperada |
+|-----------|-----------------------------------|-------------------|------------------|
+| A — Espelho OLTP | `N₁ = _______` | Segmento **atual** do cliente | baseline |
+| B — Star SCD1 | `N₂ = _______` | Segmento **atual** (SCD1 sobrescreve) | **`N₂ = N₁`** (exatamente, até o centavo) |
+| C — Star SCD2 | `N₃ = _______` | Segmento que o cliente tinha **em 1995** | **`N₃ ≠ N₁`** — diferença de ~5% dos clientes reclassificados |
+
+> [!NOTE]
+> **Calibração**: TPC-H SF10 é determinístico e `customer_history` é gerada com seed `42` — qualquer pessoa do curso que rodar os mesmos passos chega nos **mesmos 3 números**. Compare com um colega; se `N₁` diferir, tem erro de carga. Se `N₂ ≠ N₁`, tem bug no upsert SCD1. Se `N₃ = N₁`, o SCD2 não está usando o range temporal no JOIN.
+
+<!-- PRINT SUGERIDO: img/decision_md_preenchido.png
+     Print da pagina do DECISION.md aberto no editor com os 3 numeros
+     N1, N2, N3 preenchidos (AMERICA destacado em cada). Vira o "antes/
+     depois" tangivel — aluno enxerga o entregavel real que vai para
+     Marina. -->
+![](img/decision_md_preenchido.png)
+
+---
+
+<a id="passo-27"></a>
 
 27. Rode esta query bônus para ver quantos clientes foram reclassificados no "para dentro" ou "para fora" de `AUTOMOBILE`. Isso quantifica a divergência:
 
@@ -1501,17 +1833,21 @@ Ambas as perguntas são legítimas. Ambas aparecem em reuniões reais. A diferen
 > [!IMPORTANT]
 > O trabalho do engenheiro de dados não é escolher sozinho entre `N₁`, `N₂` e `N₃`. É tornar as duas perguntas **distinguíveis**, **conversáveis** e **auditáveis**. Uma modelagem bem feita permite expor as duas lado a lado, com nomes explícitos e contratos claros.
 
-28. No terminal do Codespaces, copie o template e preencha sua decisão:
+---
+
+<a id="passo-28"></a>
+
+28. **Marina entra na reunião com o conselho daqui a pouco**. Você precisa entregar a ela um documento curto e objetivo justificando qual número ela apresenta. No terminal do Codespaces, copie o template e preencha:
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga
 cp DECISION_TEMPLATE.md DECISION.md
 ```
 
-O [`DECISION_TEMPLATE.md`](DECISION_TEMPLATE.md) tem seções para: contexto, os três números observados, decisão + alternativas descartadas, consequências, perguntas a fazer ao stakeholder, decisões técnicas secundárias (distkey, sortkey, receita materializada vs. view).
+O [`DECISION_TEMPLATE.md`](DECISION_TEMPLATE.md) tem seções para: contexto (a pergunta que Marina fez), os três números observados, decisão + alternativas descartadas, consequências, perguntas que você faria a Marina antes de fechar a posição, decisões técnicas secundárias (distkey, sortkey, receita materializada vs. view).
 
 > [!TIP]
-> Em entrevistas de engenharia de dados, esse tipo de documento aparece como sinal de senioridade. Saber escrever um é tão importante quanto saber escrever o SQL.
+> Em entrevistas de engenharia de dados, esse tipo de documento aparece como sinal de senioridade. Saber escrever um é tão importante quanto saber escrever o SQL — porque você nunca decide sozinho, sempre defende a decisão para alguém como Marina.
 
 ---
 
@@ -1532,4 +1868,58 @@ Este laboratório serve como base para o próximo exercício, onde você vai sen
 
 ## Próximo passo
 
-No [Lab 03.2](../03-analise-dimensional/README.md) você vai partir do schema que escolheu aqui e ver o que acontece quando o **negócio evolui**: nova fórmula de receita, redefinição de "cliente ativo", SLA apertado de dashboard.
+No [Lab 03.3](../03-analise-dimensional/README.md) você vai partir do schema que escolheu aqui e ver o que acontece quando o **negócio evolui**: nova fórmula de receita, redefinição de "cliente ativo", SLA apertado de dashboard.
+
+> [!CAUTION]
+> **Se você não vai prosseguir agora para o Lab 03.3**, rode o `terraform destroy` antes de fechar:
+>
+> ```bash
+> cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
+> terraform destroy -auto-approve
+> ```
+>
+> O cluster Redshift continua consumindo budget mesmo ocioso. Esquecer ligado por 1 dia = ~$12 do orçamento do Learner Lab. O destroy completo leva ~5-8 minutos.
+
+---
+
+<details>
+<summary><b>💡 Glossário rápido — termos que aparecem neste lab</b></summary>
+<blockquote>
+
+| Termo | O que é |
+|-------|---------|
+| **Grain** | A "unidade" de uma linha do fato. No `f_vendas` deste lab, o grain é **um item de pedido** (1 linha = 1 `lineitem`). Trocar de grain (ex: "um pedido inteiro") invalida todas as queries existentes. |
+| **Surrogate key** (SK) | Chave artificial criada no DW, independente da chave do OLTP. `customer_sk = 1234` aponta para `c_custkey = 98765`. SKs isolam o DW de mudanças no sistema-fonte e são pré-requisito para SCD2. |
+| **SCD Tipo 1** | Atributo dimensional é **sobrescrito** quando muda. Cliente "vira SoHo"? A dim `dim_customer` agora diz "SoHo" para todos os pedidos — inclusive os passados. |
+| **SCD Tipo 2** | Atributo dimensional é **versionado** com `valid_from`/`valid_to`. Um cliente que mudou de segmento vira 2 linhas na dim, cada uma válida em um intervalo. Join da fato usa a versão vigente na data do pedido. |
+| **DISTKEY** | Coluna pela qual o Redshift distribui linhas entre os slices do cluster. Joins entre tabelas com a mesma DISTKEY ficam co-localizados (sem broadcast). Errar aqui = query 10× mais lenta. |
+| **SORTKEY** | Coluna pela qual o Redshift ordena fisicamente dentro de cada slice. Habilita **zone map pruning**: blocos inteiros pulados se não batem no filtro. Ótimo para datas em fatos. |
+| **Zone map** | Metadado que o Redshift mantém por bloco de 1MB contendo min/max de cada coluna. Permite pular leitura física. |
+| **COPY** | Comando do Redshift para carga paralela em massa a partir de S3. Sempre usar em vez de `INSERT` em lote. |
+| **ANALYZE** | Atualiza as estatísticas do otimizador. Rodar após cargas grandes ou os planos ficam ruins. |
+| **Materialized View** | View cujo resultado é materializado fisicamente. No Redshift pode ter `AUTO REFRESH` — o cluster recalcula automaticamente quando a fonte muda. |
+| **Query-âncora** | Neste lab, a query única que rodamos nas 3 modelagens para comparar `N₁`, `N₂`, `N₃`. Conceito genérico: uma query-padrão usada para validar equivalência entre modelos. |
+| **Star schema** | Modelagem dimensional clássica: 1 fato central + N dimensões conectadas por surrogate keys. Alternativa ao snowflake (mais normalizado) e ao data vault. |
+
+</blockquote>
+</details>
+
+<details>
+<summary><b>💡 Como pedir ajuda se travou</b></summary>
+<blockquote>
+
+Antes de abrir issue/perguntar no Slack, colete estas 4 informações — elas reduzem o tempo de resposta em 10×:
+
+1. **Em que passo você está** (ex: "passo 14c, criando dim_supplier")
+2. **Mensagem de erro literal** (copia-cola completo, não screenshot se der — texto é pesquisável)
+3. **Saída de `\dt oltp_mirror.*` e `\dt dw_star.*`** no Query Editor (mostra o que foi criado de fato)
+4. **O que você já tentou** (não é julgamento — é para não repetirmos sugestão que você já descartou)
+
+Canais (em ordem de prioridade):
+
+- **Issues do repositório**: [github.com/vamperst/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/issues](https://github.com/vamperst/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/issues) — melhor lugar para bugs reprodutíveis (o próximo aluno encontra a solução pesquisando)
+- **E-mail do professor**: `rafael.barbosa@fiap.com.br` — para dúvidas conceituais ou problemas na conta AWS Academy
+- **Antes de tudo**: releia o bloco `<details>` mais próximo com `⚠ Se der erro` — cobre ~80% dos tropeços conhecidos
+
+</blockquote>
+</details>

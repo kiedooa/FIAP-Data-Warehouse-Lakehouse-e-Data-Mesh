@@ -34,9 +34,9 @@ variable "redshift_node_type" {
 }
 
 variable "redshift_number_of_nodes" {
-  description = "Quantidade de nós. Learner Lab permite no máximo 2. Usamos 1 para economizar budget."
+  description = "Quantidade de nós. Learner Lab permite no máximo 2. Default 2 para paralelizar slices no COPY de lineitem (60M linhas em SF10)."
   type        = number
-  default     = 1
+  default     = 2
 
   validation {
     condition     = var.redshift_number_of_nodes >= 1 && var.redshift_number_of_nodes <= 2
