@@ -75,10 +75,6 @@ terraform apply -auto-approve
 
 Tempo típico: **1m20 a 5 minutos** (o Redshift é o que mais demora; 2 nós ra3.large levam ~1m20 quando a região tem capacidade). A flag `-auto-approve` pula o "type 'yes' to confirm" — esse lab é sobre modelagem dimensional, não sobre rituais do Terraform.
 
-<!-- PRINT SUGERIDO: img/terraform_apply_sucesso.png
-     Saída final do terraform apply: linha "Apply complete! Resources: 15 added"
-     + bloco next_steps com endpoint do Redshift, bucket, glue_database. Confirma
-     que a infra subiu inteira. -->
 ![](img/terraform_apply_sucesso.png)
 
 <details>
@@ -183,10 +179,6 @@ Tempo típico: **~1m40**. O script:
 4. Faz upload do `customer_history.tbl` para o S3
 5. Registra as 9 tabelas no Glue Data Catalog (formato CSV `|` delimitado)
 
-<!-- PRINT SUGERIDO: img/load_tpch_listagem_final.png
-     Listagem final do load_tpch.sh: 9 objetos no S3, total 10.4 GiB,
-     com tempos individuais de cada copia paralela (lineitem ~50s).
-     Confirma que a carga terminou inteira. -->
 ![](img/load_tpch_listagem_final.png)
 
 <details>
@@ -232,29 +224,66 @@ bash scripts/load_tpch.sh
 
 Dois caminhos suportados. Escolha um:
 
-#### Caminho A — Query Editor v2 (recomendado)
+#### Caminho A — Editor de consultas v2 (recomendado)
 
-<!-- PRINT SUGERIDO: img/qev2_create_connection.png
-     Tela "Create connection" do Query Editor v2 com o cluster
-     dw-aula3-<short_id> selecionado, "Database user and password"
-     marcado, dwadmin no usuario, dw_mba no banco. Onde o aluno
-     mais erra na primeira vez. -->
+
+**3.1.** No console AWS, abra **[Redshift](https://us-east-1.console.aws.amazon.com/redshiftv2/home?region=us-east-1) → clique em Editor de consultas v2**
+
 ![](img/qev2_create_connection.png)
-
-**3.1.** No console AWS, abra **Redshift → Query Editor v2**
 
 **3.2.** Clique no cluster `dw-aula3-<short_id>`
 
-**3.3.** **Database user and password** → use `dwadmin` e a senha de (executar no terminal do Codespaces):
+![](img/qev2_create_connection2.png)
+
+
+**3.3.** **Volte rapidamente ao codespaces para pegar a senha do banco** →  Execute o comando abaixo para isso:
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
-terraform output -raw redshift_master_password
+terraform output -raw redshift_master_password  && echo
 ```
 
-**3.4.** Database: `dw_mba`
+![](img/qev2_create_connection3.png)
+
+**3.4.** Preencha o formulário de conexão exatamente como na imagem abaixo:
+
+| Campo | Valor |
+|-------|-------|
+| **Authentication** | Database user name and password |
+| **Database** | `dw_mba` |
+| **User name** | `dwadmin` |
+| **Password** | a senha que apareceu no terminal do Codespaces no passo **3.3** (cole sem espaços extras) |
+
+![](img/qev2_create_connection4.png)
+
+**3.5.** Clique no botão **`Create connection`** no canto inferior direito do formulário para finalizar.
+
+**3.6.** Em caso de sucesso, você terá algo como a imagem abaixo:
+
+![](img/qev2_create_connection5.png)
+
+> [!TIP]
+> Se aparecer `password authentication failed`, volte ao passo 3.3, copie a senha de novo (atenção: o `&& echo` adiciona uma linha em branco — copie só a string da senha, sem o `$` do prompt).
 
 #### Caminho B — psql no Codespaces
+
+O devcontainer da FIAP **não vem com `psql` instalado por padrão**. Os passos abaixo instalam o cliente PostgreSQL e fazem a conexão.
+
+**3.6.** Instale o cliente PostgreSQL no Codespaces (precisa rodar uma única vez por Codespaces):
+
+```bash
+sudo apt-get update -qq && sudo apt-get install -y postgresql-client
+```
+
+**3.7.** Confirme que ficou disponível:
+
+```bash
+psql --version
+```
+
+Deve imprimir algo como `psql (PostgreSQL) 15.x`. Se aparecer `psql: command not found`, repita o passo **3.6**.
+
+**3.8.** Conecte no Redshift via psql:
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/01-provisionamento
@@ -264,12 +293,17 @@ PGPASSWORD="$(terraform output -raw redshift_master_password)" \
        -U "$(terraform output -raw redshift_master_username)" \
        -d "$(terraform output -raw redshift_database)"
 ```
+![](img/qev2_create_connection6.png)
 
-Teste inicial:
+**3.9.** Teste a conexão executando:
 
 ```sql
 SELECT current_user, current_database(), version();
 ```
+
+Deve retornar `dwadmin | dw_mba | PostgreSQL 8.0.2 ... Redshift X.X.X`.
+
+![](img/qev2_create_connection7.png)
 
 <details>
 <summary><b>⚠ Se der erro: Query Editor v2 não conecta</b></summary>

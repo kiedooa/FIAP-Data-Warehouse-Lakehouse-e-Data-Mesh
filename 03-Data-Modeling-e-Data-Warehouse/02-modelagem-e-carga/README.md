@@ -70,11 +70,11 @@ Ao final deste laboratório, você terá implementado três modelagens do mesmo 
 
 | Parte | O que você faz | Passos | Tempo |
 |-------|----------------|--------|-------|
-| [Parte 1](#parte-1---acessando-o-redshift-pelo-query-editor-v2) | Acessa o Redshift pelo Query Editor v2 | [1](#passo-1) · [2](#passo-2) · [3](#passo-3) · [4](#passo-4) | ~5 min |
-| [Parte 2](#parte-2---modelagem-a-espelho-do-oltp) | Modelagem A — espelho OLTP → produz `N₁` | [5](#passo-5) · [6](#passo-6) · [7](#passo-7) · [8](#passo-8) · [9](#passo-9) · [10](#passo-10) | ~30 min |
-| [Parte 3](#parte-3---modelagem-b-star-schema-com-scd-tipo-1) | Modelagem B — star schema SCD1 → produz `N₂` | [11](#passo-11) · [12](#passo-12) · [13](#passo-13) · [14](#passo-14)([a](#passo-14a)·[b](#passo-14b)·[c](#passo-14c)·[d](#passo-14d)) · [15](#passo-15) · [16](#passo-16) · [17](#passo-17) · [18](#passo-18) | ~25 min |
-| [Parte 4](#parte-4---modelagem-c-star-schema-com-scd-tipo-2) | Modelagem C — star schema SCD2 → produz `N₃` | [19](#passo-19) · [20](#passo-20) · [21](#passo-21) · [22](#passo-22) · [23](#passo-23) · [24](#passo-24) · [25](#passo-25) | ~20 min |
-| [Parte 5](#parte-5---comparando-os-três-resultados) | Compara `N₁`, `N₂`, `N₃` e escreve `DECISION.md` | [26](#passo-26) · [27](#passo-27) · [28](#passo-28) | ~10 min |
+| [Parte 1](#parte-1---acessando-o-redshift-pelo-query-editor-v2) | Acessa o Redshift pelo Query Editor v2 | [1](#passo-1) · [2](#passo-2) · [3](#passo-3) | ~5 min |
+| [Parte 2](#parte-2---modelagem-a-espelho-do-oltp) | Modelagem A — espelho OLTP → produz `N₁` | [4](#passo-4) · [5](#passo-5) · [6](#passo-6) · [7](#passo-7) · [8](#passo-8) · [9](#passo-9) | ~30 min |
+| [Parte 3](#parte-3---modelagem-b-star-schema-com-scd-tipo-1) | Modelagem B — star schema SCD1 → produz `N₂` | [10](#passo-10) · [11](#passo-11) · [12](#passo-12) · [13](#passo-13)([a](#passo-13a)·[b](#passo-13b)·[c](#passo-13c)·[d](#passo-13d)) · [14](#passo-14) · [15](#passo-15) · [16](#passo-16) · [17](#passo-17) | ~25 min |
+| [Parte 4](#parte-4---modelagem-c-star-schema-com-scd-tipo-2) | Modelagem C — star schema SCD2 → produz `N₃` | [18](#passo-18) · [19](#passo-19) · [20](#passo-20) · [21](#passo-21) · [22](#passo-22) · [23](#passo-23) · [24](#passo-24) | ~20 min |
+| [Parte 5](#parte-5---comparando-os-três-resultados) | Compara `N₁`, `N₂`, `N₃` e responde Marina | [25](#passo-25) · [26](#passo-26) | ~10 min |
 
 > [!TIP]
 > Se travou em algum passo, você pode pular direto: clique no número do passo na coluna **Passos** acima.
@@ -372,32 +372,45 @@ Ao final desta etapa, você estará conectado ao cluster Redshift pelo editor de
 
 <a id="passo-2"></a>
 
-2. Clique com o botão direito no cluster `dw-aula3-<SHORT_ID>` e escolha **Create connection**.
+2. **Reuse a conexão criada no Lab 03.1**. Como você acabou de finalizar o Lab 03.1 com **Create connection** no cluster `dw-aula3-<SHORT_ID>`, basta clicar no nome do cluster na árvore esquerda e escolher o banco `dw_mba` no dropdown superior — o Query Editor v2 reaproveita as credenciais salvas.
+
+<details>
+<summary><b>💡 Se você fechou o navegador ou está chegando direto neste lab</b></summary>
+<blockquote>
+
+Se a conexão não estiver mais ativa (você fechou o navegador, expirou a sessão, ou está pulando direto para este lab sem ter feito o 03.1 hoje), recrie:
+
+**2.a** Clique com o botão direito no cluster `dw-aula3-<SHORT_ID>` e escolha **Create connection**.
 
 <!-- PRINT SUGERIDO: img/redshift_create_connection.png
      Menu de contexto aberto no cluster, destacando a opção "Create connection".
      Use zoom na árvore lateral esquerda para o cluster + menu aparecerem juntos. -->
 ![](img/redshift_create_connection.png)
 
----
+**2.b** Na caixa de autenticação, preencha:
 
-<a id="passo-3"></a>
-
-3. Na caixa de autenticação, escolha **Database user name and password** e preencha:
-   - Database: `dw_mba`
-   - Username: `dwadmin`
-   - Password: o valor retornado por `terraform output -raw redshift_master_password` (no Codespaces, na pasta `01-provisionamento/`)
+| Campo | Valor |
+|-------|-------|
+| **Authentication** | Database user name and password |
+| **Database** | `dw_mba` |
+| **User name** | `dwadmin` |
+| **Password** | rode `terraform output -raw redshift_master_password && echo` no Codespaces (pasta `01-provisionamento/`) e cole o valor retornado |
 
 <!-- PRINT SUGERIDO: img/redshift_connection_form.png
      Caixa de autenticação preenchida (com a senha coberta/borrada).
      Mostra os 3 campos: Database, Username, Password. -->
 ![](img/redshift_connection_form.png)
 
+**2.c** Clique em **Create connection** para finalizar.
+
+</blockquote>
+</details>
+
 ---
 
-<a id="passo-4"></a>
+<a id="passo-3"></a>
 
-4. Teste a conexão executando:
+3. Teste a conexão executando:
 
 ```sql
 SELECT current_database(), current_user, version();
@@ -438,9 +451,9 @@ Ao final desta parte, as 8 tabelas do TPC-H estarão criadas no schema `oltp_mir
 
 ---
 
-<a id="passo-5"></a>
+<a id="passo-4"></a>
 
-5. Crie o schema e as 8 tabelas TPC-H. Este schema reproduz o modelo relacional operacional, sem qualquer transformação analítica:
+4. Crie o schema e as 8 tabelas TPC-H. Este schema reproduz o modelo relacional operacional, sem qualquer transformação analítica:
 
 ```sql
 DROP SCHEMA IF EXISTS oltp_mirror CASCADE;
@@ -544,9 +557,6 @@ DISTKEY (l_orderkey)
 SORTKEY (l_shipdate);
 ```
 
-<!-- PRINT SUGERIDO: img/oltp_create_schema_success.png
-     Painel "Query executed successfully" após rodar o CREATE SCHEMA + todos os CREATE TABLE.
-     Capturar a mensagem de sucesso + a árvore lateral mostrando o schema novo. -->
 ![](img/oltp_create_schema_success.png)
 
 <details>
@@ -580,23 +590,23 @@ Documentação oficial:
 
 ---
 
-<a id="passo-6"></a>
+<a id="passo-5"></a>
 
-6. Antes de carregar dados, descubra seu Account ID para montar a URL do S3:
+5. Antes de carregar dados, descubra seu Account ID para montar a URL do S3. **No terminal do Codespaces** (não no Query Editor), rode:
 
-```sql
-SELECT current_user_id() AS user, current_aws_account() AS account_id;
+```bash
+aws sts get-caller-identity --query Account --output text
 ```
 
-<!-- PRINT SUGERIDO: img/redshift_account_id.png
-     Resultado da query mostrando o account_id. Usuário vai copiar esse valor para os próximos COPY. -->
+O comando retorna 12 dígitos (ex: `123456789012`) — esse é o seu `<SEU_ACCOUNT_ID>` para os próximos `COPY`.
+
 ![](img/redshift_account_id.png)
 
 ---
 
-<a id="passo-7"></a>
+<a id="passo-6"></a>
 
-7. Carregue as 8 tabelas usando `COPY FROM S3`. **Em todos os blocos abaixo, substitua `<SEU_ACCOUNT_ID>` pelo valor obtido no passo 6**. Dividimos em 3 lotes: pequenas → médias → grandes (fatos). Rode e valide cada lote antes de seguir — é mais fácil descobrir qual tabela falhou se algo der errado.
+6. Carregue as 8 tabelas usando `COPY FROM S3`. **Em todos os blocos abaixo, substitua `<SEU_ACCOUNT_ID>` pelo valor obtido no passo 5**. Dividimos em 3 lotes: pequenas → médias → grandes (fatos). Rode e valide cada lote antes de seguir — é mais fácil descobrir qual tabela falhou se algo der errado.
 
 **Lote 1/3 — tabelas de referência (rápido, 2 tabelas, poucas linhas):**
 
@@ -620,11 +630,6 @@ SELECT 'region' AS tbl, COUNT(*) AS linhas FROM oltp_mirror.region
 UNION ALL SELECT 'nation', COUNT(*) FROM oltp_mirror.nation;
 ```
 
-<!-- PRINT SUGERIDO: img/copy_lote_1_sucesso.png
-     Mensagens dos 2 COPYs ("INFO: Load into table 'region' completed, 5
-     record(s) loaded...") + resultado do checkpoint mostrando region=5,
-     nation=25. Primeiro COPY do lab — aluno reconhece o padrao para os
-     proximos 7. -->
 ![](img/copy_lote_1_sucesso.png)
 
 **Lote 2/3 — mestres (médio, 4 tabelas, até 800k linhas):**
@@ -665,6 +670,8 @@ UNION ALL SELECT 'part',     COUNT(*) FROM oltp_mirror.part
 UNION ALL SELECT 'partsupp', COUNT(*) FROM oltp_mirror.partsupp;
 ```
 
+![](img/copy_lote_2_sucesso.png)
+
 **Lote 3/3 — transacionais (lento, 2 tabelas, até 6M linhas):**
 
 ```sql
@@ -686,6 +693,7 @@ STATUPDATE OFF;
 SELECT 'orders'   AS tbl, COUNT(*) AS linhas FROM oltp_mirror.orders
 UNION ALL SELECT 'lineitem', COUNT(*) FROM oltp_mirror.lineitem;
 ```
+![](img/copy_lote_3_sucesso.png)
 
 > [!TIP]
 > `lineitem` é a maior tabela (~7,2 GB de texto SF10, ~60M linhas) e demora **~6 min** no cluster com 2 nós + `COMPUPDATE OFF`. `orders` (~15M linhas) leva **~1m30**. Se parecer travado, confira no console Redshift se a query ainda está rodando — não cancele antes.
@@ -727,9 +735,9 @@ Documentação oficial:
 
 ---
 
-<a id="passo-8"></a>
+<a id="passo-7"></a>
 
-8. Atualize as estatísticas do otimizador (passo rápido mas importante para os planos subsequentes):
+7. Atualize as estatísticas do otimizador (passo rápido mas importante para os planos subsequentes):
 
 ```sql
 ANALYZE oltp_mirror.region;
@@ -744,9 +752,9 @@ ANALYZE oltp_mirror.lineitem;
 
 ---
 
-<a id="passo-9"></a>
+<a id="passo-8"></a>
 
-9. Confirme que os volumes batem com o TPC-H SF10. **Essa é sua primeira âncora de confiança** — se os números aqui não batem, **não siga adiante**. Qualquer divergência na query-âncora (passo 10) vai ser causada por problema aqui, e você gasta 20 minutos debugando a query para descobrir que a carga falhou:
+8. Confirme que os volumes batem com o TPC-H SF10. **Essa é sua primeira âncora de confiança** — se os números aqui não batem, **não siga adiante**. Qualquer divergência na query-âncora (passo 9) vai ser causada por problema aqui, e você gasta 20 minutos debugando a query para descobrir que a carga falhou:
 
 ```sql
 SELECT 'region'   AS tbl, COUNT(*) AS linhas,         5 AS esperado FROM oltp_mirror.region
@@ -767,9 +775,6 @@ SELECT 'lineitem' AS tbl, COUNT(*) AS linhas,  59986052 AS esperado FROM oltp_mi
 ORDER BY tbl;
 ```
 
-<!-- PRINT SUGERIDO: img/oltp_sanity_check.png
-     Resultado das 8 linhas com "linhas" == "esperado" em todos os casos.
-     Essa é a evidência de que o COPY funcionou corretamente. -->
 ![](img/oltp_sanity_check.png)
 
 <details>
@@ -798,9 +803,9 @@ Se o bucket estiver vazio, volte para o Lab 03.1 e rode `bash scripts/load_tpch.
 
 ---
 
-<a id="passo-10"></a>
+<a id="passo-9"></a>
 
-10. Execute a query-âncora pela primeira vez, no modelo OLTP:
+9. Execute a query-âncora pela primeira vez, no modelo OLTP:
 
 ```sql
 SELECT
@@ -820,9 +825,6 @@ GROUP BY r.r_name
 ORDER BY receita_liquida_1995_automobile DESC;
 ```
 
-<!-- PRINT SUGERIDO: img/query_ancora_N1.png
-     Resultado da query-âncora no modelo A. As 5 regiões aparecem ordenadas por receita descendente.
-     Destaque o valor de AMERICA (linha superior) — é o número que o aluno vai comparar com N2 e N3. -->
 ![](img/query_ancora_N1.png)
 
 > [!TIP]
@@ -874,9 +876,9 @@ Ao final desta parte, o schema `dw_star` terá 5 dimensões (`dim_data`, `dim_cu
 
 ---
 
-<a id="passo-11"></a>
+<a id="passo-10"></a>
 
-11. Crie o schema:
+10. Crie o schema:
 
 ```sql
 DROP SCHEMA IF EXISTS dw_star CASCADE;
@@ -906,9 +908,9 @@ Em um warehouse real, o grain fica documentado no catálogo de dados, no dbt `de
 
 ---
 
-<a id="passo-12"></a>
+<a id="passo-11"></a>
 
-12. Crie e popule a `dim_data`, cobrindo 1992-01-01 a 1998-12-31:
+11. Crie e popule a `dim_data`, cobrindo 1992-01-01 a 1998-12-31:
 
 ```sql
 CREATE TABLE dw_star.dim_data (
@@ -958,9 +960,9 @@ ANALYZE dw_star.dim_data;
 
 ---
 
-<a id="passo-13"></a>
+<a id="passo-12"></a>
 
-13. Valide que a dimensão foi populada corretamente:
+12. Valide que a dimensão foi populada corretamente:
 
 ```sql
 SELECT
@@ -972,15 +974,13 @@ FROM dw_star.dim_data;
 
 O esperado é 2557 linhas, de 1992-01-01 a 1998-12-31.
 
-<!-- PRINT SUGERIDO: img/dim_data_loaded.png
-     Resultado mostrando 2557 linhas e as datas extremas. -->
 ![](img/dim_data_loaded.png)
 
 <details>
 <summary><b>⚠ Se a <code>dim_data</code> veio com janela errada ou vazia</b></summary>
 <blockquote>
 
-Em cluster recém-criado, a system table `stl_plan_info` usada no CTE `numeros` pode ter poucas linhas, o que pode gerar uma `dim_data` incompleta. Use o fallback com **CTE recursiva** descrito no bloco "Fallback com CTE recursiva" dentro do passo 12, acima.
+Em cluster recém-criado, a system table `stl_plan_info` usada no CTE `numeros` pode ter poucas linhas, o que pode gerar uma `dim_data` incompleta. Use o fallback com **CTE recursiva** descrito no bloco "Fallback com CTE recursiva" dentro do passo 11, acima.
 
 Confirme se o range está certo:
 
@@ -988,7 +988,7 @@ Confirme se o range está certo:
 SELECT MIN(dt_completa), MAX(dt_completa) FROM dw_star.dim_data;
 ```
 
-Se a janela estiver fora de 1992-01-01 a 1998-12-31, as queries-âncora dos passos 17 e 25 vão retornar vazio por não acharem `nr_ano = 1995`.
+Se a janela estiver fora de 1992-01-01 a 1998-12-31, as queries-âncora dos passos 16 e 24 vão retornar vazio por não acharem `nr_ano = 1995`.
 
 </blockquote>
 </details>
@@ -1018,7 +1018,7 @@ Dim_data é a primeira coisa que se monta em um warehouse serio. Ela costuma ter
 
 ### Fallback com CTE recursiva
 
-Se `stl_plan_info` estiver vazia (pode acontecer em cluster recém-criado), substitua o bloco `WITH numeros AS ...` do passo 12 por uma CTE recursiva:
+Se `stl_plan_info` estiver vazia (pode acontecer em cluster recém-criado), substitua o bloco `WITH numeros AS ...` do passo 11 por uma CTE recursiva:
 
 ```sql
 WITH RECURSIVE serie(dt) AS (
@@ -1036,13 +1036,13 @@ O restante das colunas do `INSERT` permanece igual.
 
 ---
 
-<a id="passo-14"></a>
+<a id="passo-13"></a>
 
-14. Crie e popule as 4 dimensões restantes, **uma por vez**. Valide o retorno do `SELECT COUNT(*)` de cada antes de seguir para a próxima — é comum esquecer de rodar o `INSERT` depois do `CREATE`.
+13. Crie e popule as 4 dimensões restantes, **uma por vez**. Valide o retorno do `SELECT COUNT(*)` de cada antes de seguir para a próxima — é comum esquecer de rodar o `INSERT` depois do `CREATE`.
 
-<a id="passo-14a"></a>
+<a id="passo-13a"></a>
 
-**14a · `dim_geografia`** — achata `nation + region` em uma única tabela (star classic, não snowflake):
+**13a · `dim_geografia`** — achata `nation + region` em uma única tabela (star classic, não snowflake):
 
 ```sql
 CREATE TABLE dw_star.dim_geografia (
@@ -1069,9 +1069,9 @@ ANALYZE dw_star.dim_geografia;
 SELECT COUNT(*) AS linhas FROM dw_star.dim_geografia;
 ```
 
-<a id="passo-14b"></a>
+<a id="passo-13b"></a>
 
-**14b · `dim_customer` (SCD Tipo 1)** — sobrescreve o segmento atual:
+**13b · `dim_customer` (SCD Tipo 1)** — sobrescreve o segmento atual:
 
 ```sql
 CREATE TABLE dw_star.dim_customer (
@@ -1101,9 +1101,9 @@ ANALYZE dw_star.dim_customer;
 SELECT COUNT(*) AS linhas FROM dw_star.dim_customer;
 ```
 
-<a id="passo-14c"></a>
+<a id="passo-13c"></a>
 
-**14c · `dim_produto`** — achata `part` com atributos descritivos:
+**13c · `dim_produto`** — achata `part` com atributos descritivos:
 
 ```sql
 CREATE TABLE dw_star.dim_produto (
@@ -1139,9 +1139,9 @@ ANALYZE dw_star.dim_produto;
 SELECT COUNT(*) AS linhas FROM dw_star.dim_produto;
 ```
 
-<a id="passo-14d"></a>
+<a id="passo-13d"></a>
 
-**14d · `dim_supplier`**:
+**13d · `dim_supplier`**:
 
 ```sql
 CREATE TABLE dw_star.dim_supplier (
@@ -1202,9 +1202,9 @@ Quando a dimensão normalizada é **gigante** (milhões de linhas com hierarquia
 
 ---
 
-<a id="passo-15"></a>
+<a id="passo-14"></a>
 
-15. Confirme contagens:
+14. Confirme contagens:
 
 ```sql
 SELECT 'dim_data'      AS dim, COUNT(*) AS linhas FROM dw_star.dim_data
@@ -1221,16 +1221,14 @@ ORDER BY dim;
 
 Esperado: dim_data=2557, dim_geografia=25, dim_customer=1500000, dim_produto=2000000, dim_supplier=100000.
 
-<!-- PRINT SUGERIDO: img/dw_star_dims_loaded.png
-     Resultado das 5 dimensões com contagem correspondente.
-     Evidência de que o CTAS das dimensões funcionou. -->
+
 ![](img/dw_star_dims_loaded.png)
 
 ---
 
-<a id="passo-16"></a>
+<a id="passo-15"></a>
 
-16. Crie e carregue a tabela fato `f_vendas`:
+15. Crie e carregue a tabela fato `f_vendas`:
 
 ```sql
 CREATE TABLE dw_star.f_vendas (
@@ -1321,79 +1319,88 @@ Na fato criamos três colunas de receita calculadas:
 
 ---
 
-<a id="passo-17"></a>
+<a id="passo-16"></a>
 
-17. Execute a query-âncora no star schema:
+16. Execute a query-âncora no star schema **lado a lado com o resultado do OLTP**, em uma única consulta. Isso prova diretamente a equivalência (ou divergência) entre `N₁` e `N₂` por região, sem você ter que comparar dois prints visualmente:
 
 ```sql
+WITH oltp AS (
+    SELECT r.r_name AS region_name,
+           ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS n1_oltp
+    FROM oltp_mirror.lineitem l
+    JOIN oltp_mirror.orders   o ON o.o_orderkey   = l.l_orderkey
+    JOIN oltp_mirror.customer c ON c.c_custkey    = o.o_custkey
+    JOIN oltp_mirror.nation   n ON n.n_nationkey  = c.c_nationkey
+    JOIN oltp_mirror.region   r ON r.r_regionkey  = n.n_regionkey
+    WHERE o.o_orderdate >= DATE '1995-01-01'
+      AND o.o_orderdate <  DATE '1996-01-01'
+      AND c.c_mktsegment = 'AUTOMOBILE'
+    GROUP BY r.r_name
+),
+star AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n2_star
+    FROM dw_star.f_vendas    f
+    JOIN dw_star.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data      d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano       = 1995
+      AND c.sg_segmento  = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+)
 SELECT
-    g.nm_regiao                                    AS region_name,
-    ROUND(SUM(f.vl_receita_liquida), 2)            AS receita_liquida_1995_automobile,
-    COUNT(*)                                       AS qtd_itens,
-    COUNT(DISTINCT f.customer_sk)                  AS qtd_clientes_distintos
-FROM dw_star.f_vendas    f
-JOIN dw_star.dim_customer  c ON c.customer_sk  = f.customer_sk
-JOIN dw_star.dim_geografia g ON g.geografia_sk = f.geografia_sk
-JOIN dw_star.dim_data      d ON d.data_sk      = f.data_sk
-WHERE d.nr_ano       = 1995
-  AND c.sg_segmento  = 'AUTOMOBILE'
-GROUP BY g.nm_regiao
-ORDER BY receita_liquida_1995_automobile DESC;
+    o.region_name,
+    o.n1_oltp,
+    s.n2_star,
+    s.n2_star - o.n1_oltp                                     AS diferenca,
+    CASE WHEN s.n2_star = o.n1_oltp THEN 'OK iguais'
+         ELSE 'DIVERGE'                            END        AS validacao
+FROM oltp o
+JOIN star s ON s.region_name = o.region_name
+ORDER BY o.n1_oltp DESC;
 ```
 
-<!-- PRINT SUGERIDO: img/query_ancora_N2.png
-     Resultado da query-âncora no modelo B. Comparar AMERICA com N1 — devem ser ≈ iguais (SCD1 = segmento atual). -->
 ![](img/query_ancora_N2.png)
 
 > [!TIP]
-> **Anote o valor de `AMERICA` como `N₂`**. Compare com `N₁` — eles devem ser praticamente iguais (pequenas diferenças de arredondamento são esperadas).
+> **Anote o valor de `n2_star` na linha `AMERICA` como `N₂`**. As 5 linhas devem retornar `validacao = 'OK iguais'` e `diferenca = 0.00` — prova de que SCD Tipo 1 reproduz numericamente o OLTP. Se aparecer `DIVERGE`, há bug na carga das dimensões ou da fato.
 
 ---
 
-<a id="passo-18"></a>
+<a id="passo-17"></a>
 
-18. Compare os planos de execução OLTP vs. Star para sentir a diferença estrutural:
-
-```sql
-EXPLAIN
-SELECT r.r_name, SUM(l.l_extendedprice * (1 - l.l_discount))
-FROM oltp_mirror.lineitem l
-JOIN oltp_mirror.orders   o ON o.o_orderkey   = l.l_orderkey
-JOIN oltp_mirror.customer c ON c.c_custkey    = o.o_custkey
-JOIN oltp_mirror.nation   n ON n.n_nationkey  = c.c_nationkey
-JOIN oltp_mirror.region   r ON r.r_regionkey  = n.n_regionkey
-WHERE o.o_orderdate >= DATE '1995-01-01'
-  AND o.o_orderdate <  DATE '1996-01-01'
-  AND c.c_mktsegment = 'AUTOMOBILE'
-GROUP BY r.r_name;
-```
-
-Guarde o plano. Agora o equivalente no star:
+17. **Pergunta**: *"Quantas linhas a query-âncora precisa varrer (e por quantos JOINs ela passa) em cada modelagem?"*. Essa é a métrica que mais explica por que o star é mais rápido — sem precisar ler plano de execução em sala. Rode:
 
 ```sql
-EXPLAIN
-SELECT g.nm_regiao, SUM(f.vl_receita_liquida)
-FROM dw_star.f_vendas      f
-JOIN dw_star.dim_customer  c ON c.customer_sk  = f.customer_sk
-JOIN dw_star.dim_geografia g ON g.geografia_sk = f.geografia_sk
-JOIN dw_star.dim_data      d ON d.data_sk      = f.data_sk
-WHERE d.nr_ano       = 1995
-  AND c.sg_segmento  = 'AUTOMOBILE'
-GROUP BY g.nm_regiao;
+SELECT 'A — OLTP'  AS modelagem,
+       5           AS qtd_joins,
+       (SELECT COUNT(*) FROM oltp_mirror.lineitem)
+       + (SELECT COUNT(*) FROM oltp_mirror.orders)
+       + (SELECT COUNT(*) FROM oltp_mirror.customer)
+       + (SELECT COUNT(*) FROM oltp_mirror.nation)
+       + (SELECT COUNT(*) FROM oltp_mirror.region)   AS linhas_envolvidas_no_join
+UNION ALL
+SELECT 'B — Star',
+       3,
+       (SELECT COUNT(*) FROM dw_star.f_vendas)
+       + (SELECT COUNT(*) FROM dw_star.dim_customer)
+       + (SELECT COUNT(*) FROM dw_star.dim_geografia)
+       + (SELECT COUNT(*) FROM dw_star.dim_data)
+ORDER BY modelagem;
 ```
 
-<!-- PRINT SUGERIDO: img/explain_oltp_vs_star.png
-     Dois planos de EXPLAIN lado a lado (ou em sequência).
-     Destaque que o star tem menos nós de JOIN e não redistribui dim_geografia (DISTSTYLE ALL). -->
 ![](img/explain_oltp_vs_star.png)
+
+> [!TIP]
+> Esperado: a Modelagem A varre **5 tabelas em 5 JOINs** (lineitem 60M + orders 15M + customer 1,5M + nation 25 + region 5 ≈ **76,5M linhas envolvidas**). A Modelagem B varre **4 tabelas em 3 JOINs** (f_vendas 60M + dim_customer 1,5M + dim_geografia 25 + dim_data 2.557 ≈ **61,5M linhas**). **20% menos volume de JOIN, com `dim_geografia` e `dim_data` distribuídas em todos os slices (`DISTSTYLE ALL`) — não há broadcast de rede.** É essa redução de trabalho que materializa a vantagem do star.
 
 ### Checkpoint
 
 Se você chegou até aqui, então:
 
 - o schema `dw_star` tem 5 dimensões e uma fato
-- a query-âncora rodou e `N₂ ≈ N₁`
-- você comparou os planos de execução OLTP vs. Star
+- a query-âncora rodou e `N₂ = N₁`
+- você quantificou em números a diferença de esforço entre OLTP e Star
 
 ---
 
@@ -1418,9 +1425,9 @@ Ao final desta parte, o schema `dw_star_scd2` terá uma `dim_customer` versionad
 
 ---
 
-<a id="passo-19"></a>
+<a id="passo-18"></a>
 
-19. Crie o schema e carregue a tabela auxiliar `customer_history`. Essa tabela foi gerada sinteticamente pelo `load_tpch.sh` e contém reclassificações de segmento pós-1995 em **exatamente ~75.000 clientes** (5% da base SF10 de 1,5M, amostragem determinística com seed `42` — todo aluno obtém o mesmo conjunto):
+18. Crie o schema e carregue a tabela auxiliar `customer_history`. Essa tabela foi gerada sinteticamente pelo `load_tpch.sh` e contém reclassificações de segmento pós-1995 em **exatamente ~75.000 clientes** (5% da base SF10 de 1,5M, amostragem determinística com seed `42` — todo aluno obtém o mesmo conjunto):
 
 ```sql
 DROP SCHEMA IF EXISTS dw_star_scd2 CASCADE;
@@ -1438,9 +1445,9 @@ SORTKEY (c_custkey);
 
 ---
 
-<a id="passo-20"></a>
+<a id="passo-19"></a>
 
-20. Carregue a `customer_history` (lembre-se de substituir `<SEU_ACCOUNT_ID>`):
+19. Carregue a `customer_history` (lembre-se de substituir `<SEU_ACCOUNT_ID>`):
 
 ```sql
 COPY dw_star_scd2.customer_history
@@ -1457,15 +1464,13 @@ SELECT COUNT(*) AS reclassificacoes FROM dw_star_scd2.customer_history;
 
 O resultado esperado é **exatamente ~75.000 linhas** (5% de 1,5M clientes, seed `42`). Esse número é determinístico — se você obteve outro valor, a carga falhou e você deve revisar o passo anterior antes de seguir.
 
-<!-- PRINT SUGERIDO: img/customer_history_loaded.png
-     Resultado mostrando ~75.000 reclassificações carregadas. -->
 ![](img/customer_history_loaded.png)
 
 ---
 
-<a id="passo-21"></a>
+<a id="passo-20"></a>
 
-21. Crie a `dim_customer` versionada. Ela terá uma linha para clientes sem histórico e duas linhas para os reclassificados (versão original + versão nova):
+20. Crie a `dim_customer` versionada. Ela terá uma linha para clientes sem histórico e duas linhas para os reclassificados (versão original + versão nova):
 
 ```sql
 CREATE TABLE dw_star_scd2.dim_customer (
@@ -1569,9 +1574,9 @@ O cliente 42 foi reclassificado em 1996-08-15. O cliente 43 nunca mudou.
 
 ---
 
-<a id="passo-22"></a>
+<a id="passo-21"></a>
 
-22. Valide a integridade da `dim_customer` versionada com três checks:
+21. Valide a integridade da `dim_customer` versionada com três checks:
 
 ```sql
 -- 1) Todo cliente deve ter pelo menos uma versão atual
@@ -1605,15 +1610,13 @@ FROM dw_star_scd2.dim_customer;
 
 Os checks 1 e 2 devem retornar **0**. O check 3 deve mostrar 1,5M clientes, ~1,575M linhas totais (1,5M atuais + 75k históricas).
 
-<!-- PRINT SUGERIDO: img/scd2_integrity_checks.png
-     Os 3 checks com os resultados corretos. O 0+0 nos dois primeiros é a evidência de que a SCD2 foi construída certinho. -->
 ![](img/scd2_integrity_checks.png)
 
 ---
 
-<a id="passo-23"></a>
+<a id="passo-22"></a>
 
-23. Crie e carregue a fato `f_vendas` apontando para a versão correta do cliente em cada data. O segredo aqui é o **join com range temporal**:
+22. Crie e carregue a fato `f_vendas` apontando para a versão correta do cliente em cada data. O segredo aqui é o **join com range temporal**:
 
 ```sql
 CREATE TABLE dw_star_scd2.f_vendas (
@@ -1710,9 +1713,9 @@ Muitos warehouses produtivos encapsulam esse join em uma **view** que esconde a 
 
 ---
 
-<a id="passo-24"></a>
+<a id="passo-23"></a>
 
-24. Confirme que a fato tem o mesmo grain da B (59.986.052 linhas):
+23. Confirme que a fato tem o mesmo grain da B (59.986.052 linhas):
 
 ```sql
 SELECT COUNT(*) AS linhas FROM dw_star_scd2.f_vendas;
@@ -1722,33 +1725,52 @@ Se vier menos, algum pedido não encontrou versão vigente do cliente — isso i
 
 ---
 
-<a id="passo-25"></a>
+<a id="passo-24"></a>
 
-25. Execute a query-âncora pela terceira vez, agora no modelo SCD2:
+24. Execute a query-âncora pela terceira vez, agora **comparando OLTP × SCD2 lado a lado**. Repare que a única diferença na query SCD2 é o JOIN com range temporal — todo o resto é igual ao passo 16:
 
 ```sql
+WITH oltp AS (
+    SELECT r.r_name AS region_name,
+           ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS n1_oltp
+    FROM oltp_mirror.lineitem l
+    JOIN oltp_mirror.orders   o ON o.o_orderkey   = l.l_orderkey
+    JOIN oltp_mirror.customer c ON c.c_custkey    = o.o_custkey
+    JOIN oltp_mirror.nation   n ON n.n_nationkey  = c.c_nationkey
+    JOIN oltp_mirror.region   r ON r.r_regionkey  = n.n_regionkey
+    WHERE o.o_orderdate >= DATE '1995-01-01'
+      AND o.o_orderdate <  DATE '1996-01-01'
+      AND c.c_mktsegment = 'AUTOMOBILE'
+    GROUP BY r.r_name
+),
+scd2 AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n3_scd2
+    FROM dw_star_scd2.f_vendas      f
+    JOIN dw_star_scd2.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia      g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data           d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano       = 1995
+      AND c.sg_segmento  = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+)
 SELECT
-    g.nm_regiao                                    AS region_name,
-    ROUND(SUM(f.vl_receita_liquida), 2)            AS receita_liquida_1995_automobile,
-    COUNT(*)                                       AS qtd_itens,
-    COUNT(DISTINCT f.customer_sk)                  AS qtd_versoes_cliente_distintas,
-    COUNT(DISTINCT c.c_custkey)                    AS qtd_clientes_distintos
-FROM dw_star_scd2.f_vendas      f
-JOIN dw_star_scd2.dim_customer  c ON c.customer_sk  = f.customer_sk
-JOIN dw_star.dim_geografia      g ON g.geografia_sk = f.geografia_sk
-JOIN dw_star.dim_data           d ON d.data_sk      = f.data_sk
-WHERE d.nr_ano       = 1995
-  AND c.sg_segmento  = 'AUTOMOBILE'
-GROUP BY g.nm_regiao
-ORDER BY receita_liquida_1995_automobile DESC;
+    o.region_name,
+    o.n1_oltp,
+    s.n3_scd2,
+    s.n3_scd2 - o.n1_oltp                                     AS diferenca,
+    ROUND(100.0 * (s.n3_scd2 - o.n1_oltp) / o.n1_oltp, 4)     AS diferenca_pct,
+    CASE WHEN s.n3_scd2 = o.n1_oltp THEN 'OK iguais'
+         ELSE 'DIVERGE — segmento mudou pos-1995' END         AS validacao
+FROM oltp o
+JOIN scd2 s ON s.region_name = o.region_name
+ORDER BY o.n1_oltp DESC;
 ```
 
-<!-- PRINT SUGERIDO: img/query_ancora_N3.png
-     Resultado da query-âncora no modelo C. AMERICA aparece com valor DIFERENTE de N1 e N2 — esse é o clímax pedagógico do lab. -->
 ![](img/query_ancora_N3.png)
 
 > [!TIP]
-> **Anote o valor de `AMERICA` como `N₃`**. Agora você tem `N₁`, `N₂` e `N₃`.
+> **Anote o valor de `n3_scd2` na linha `AMERICA` como `N₃`**. Diferente do passo 16, aqui esperamos `validacao = 'DIVERGE'` na maioria das regiões — porque clientes reclassificados depois de 1995 vão aparecer sob o segmento que tinham **em 1995**, não o atual. A coluna `diferenca_pct` quantifica o desvio em percentual sobre o `N₁`.
 
 ### Checkpoint
 
@@ -1772,54 +1794,100 @@ Ao final desta parte, você terá colocado os 3 números lado a lado, entendido 
 
 ---
 
-<a id="passo-26"></a>
+<a id="passo-25"></a>
 
-26. Monte a tabela comparativa com os valores que você anotou:
-
-| Modelagem | Receita AUTOMOBILE 1995 (AMERICA) | Fonte do segmento | Relação esperada |
-|-----------|-----------------------------------|-------------------|------------------|
-| A — Espelho OLTP | `N₁ = _______` | Segmento **atual** do cliente | baseline |
-| B — Star SCD1 | `N₂ = _______` | Segmento **atual** (SCD1 sobrescreve) | **`N₂ = N₁`** (exatamente, até o centavo) |
-| C — Star SCD2 | `N₃ = _______` | Segmento que o cliente tinha **em 1995** | **`N₃ ≠ N₁`** — diferença de ~5% dos clientes reclassificados |
-
-> [!NOTE]
-> **Calibração**: TPC-H SF10 é determinístico e `customer_history` é gerada com seed `42` — qualquer pessoa do curso que rodar os mesmos passos chega nos **mesmos 3 números**. Compare com um colega; se `N₁` diferir, tem erro de carga. Se `N₂ ≠ N₁`, tem bug no upsert SCD1. Se `N₃ = N₁`, o SCD2 não está usando o range temporal no JOIN.
-
-<!-- PRINT SUGERIDO: img/decision_md_preenchido.png
-     Print da pagina do DECISION.md aberto no editor com os 3 numeros
-     N1, N2, N3 preenchidos (AMERICA destacado em cada). Vira o "antes/
-     depois" tangivel — aluno enxerga o entregavel real que vai para
-     Marina. -->
-![](img/decision_md_preenchido.png)
-
----
-
-<a id="passo-27"></a>
-
-27. Rode esta query bônus para ver quantos clientes foram reclassificados no "para dentro" ou "para fora" de `AUTOMOBILE`. Isso quantifica a divergência:
+25. **Pergunta**: *"Em uma única query, qual a receita AUTOMOBILE 1995 nas três modelagens, lado a lado, por região?"*. Isso fecha o lab visualmente — o aluno vê `N₁`, `N₂` e `N₃` na mesma row, sem precisar comparar prints diferentes:
 
 ```sql
--- Clientes que ERAM AUTOMOBILE mas NÃO são mais (reclassificação saindo)
-SELECT 'EX_AUTOMOBILE' AS tipo, COUNT(*) AS qtd
-FROM oltp_mirror.customer          oc
-JOIN dw_star_scd2.customer_history h ON h.c_custkey = oc.c_custkey
-WHERE oc.c_mktsegment   = 'AUTOMOBILE'
-  AND h.mktsegment_new <> 'AUTOMOBILE'
-
-UNION ALL
-
--- Clientes que HOJE são AUTOMOBILE mas NÃO eram originalmente (reclassificação entrando)
-SELECT 'VIROU_AUTOMOBILE' AS tipo, COUNT(*) AS qtd
-FROM oltp_mirror.customer          oc
-JOIN dw_star_scd2.customer_history h ON h.c_custkey = oc.c_custkey
-WHERE oc.c_mktsegment   <> 'AUTOMOBILE'
-  AND h.mktsegment_new  = 'AUTOMOBILE';
+WITH oltp AS (
+    SELECT r.r_name AS region_name,
+           ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS n1_oltp
+    FROM oltp_mirror.lineitem l
+    JOIN oltp_mirror.orders   o ON o.o_orderkey   = l.l_orderkey
+    JOIN oltp_mirror.customer c ON c.c_custkey    = o.o_custkey
+    JOIN oltp_mirror.nation   n ON n.n_nationkey  = c.c_nationkey
+    JOIN oltp_mirror.region   r ON r.r_regionkey  = n.n_regionkey
+    WHERE o.o_orderdate >= DATE '1995-01-01'
+      AND o.o_orderdate <  DATE '1996-01-01'
+      AND c.c_mktsegment = 'AUTOMOBILE'
+    GROUP BY r.r_name
+),
+star AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n2_star
+    FROM dw_star.f_vendas    f
+    JOIN dw_star.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data      d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano = 1995 AND c.sg_segmento = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+),
+scd2 AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n3_scd2
+    FROM dw_star_scd2.f_vendas      f
+    JOIN dw_star_scd2.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia      g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data           d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano = 1995 AND c.sg_segmento = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+)
+SELECT
+    o.region_name,
+    o.n1_oltp,
+    s.n2_star,
+    sc.n3_scd2,
+    ROUND(100.0 * (sc.n3_scd2 - o.n1_oltp) / o.n1_oltp, 4) AS scd2_vs_oltp_pct,
+    CASE WHEN s.n2_star = o.n1_oltp AND sc.n3_scd2 <> o.n1_oltp
+              THEN 'A=B, C diverge — comportamento esperado'
+         WHEN s.n2_star = o.n1_oltp AND sc.n3_scd2 = o.n1_oltp
+              THEN 'TODAS iguais — SCD2 nao esta filtrando por valid_from/to'
+         ELSE 'inesperado — revisar carga'                         END AS interpretacao
+FROM oltp o
+JOIN star s  ON s.region_name  = o.region_name
+JOIN scd2 sc ON sc.region_name = o.region_name
+ORDER BY o.n1_oltp DESC;
 ```
 
-<!-- PRINT SUGERIDO: img/reclassificacao_quantitativa.png
-     Resultado mostrando quantos clientes entraram/saíram do segmento AUTOMOBILE.
-     Esses números explicam exatamente a diferença entre N1/N2 e N3. -->
+> [!TIP]
+> Esperado em todas as 5 regiões: `n1_oltp = n2_star`, `n3_scd2 ≠ n1_oltp`, e `interpretacao = 'A=B, C diverge — comportamento esperado'`. A coluna `scd2_vs_oltp_pct` mostra o tamanho do desvio causado pelos ~5% de clientes reclassificados (seed 42). Esse é o número que Marina precisa enxergar para decidir qual modelagem leva ao conselho.
+
+![](img/comparativo_n1_n2_n3.png)
+
+<details>
+<summary><b>💡 Por que `N₃` diverge de `N₁`/`N₂`? Quantificando os clientes reclassificados</b></summary>
+<blockquote>
+
+A diferença entre `N₁` e `N₃` na linha de cima vem dos clientes que **mudaram de segmento depois de 1995**. Para enxergar quantos são, rode:
+
+```sql
+-- Clientes que ERAM AUTOMOBILE em 1995 mas mudaram (saida do segmento)
+SELECT 'EX_AUTOMOBILE' AS tipo, COUNT(*) AS qtd
+FROM dw_star_scd2.customer_history h
+WHERE h.mktsegment_old  = 'AUTOMOBILE'
+  AND h.mktsegment_new <> 'AUTOMOBILE'
+UNION ALL
+-- Clientes que NAO eram AUTOMOBILE em 1995 mas viraram depois (entrada no segmento)
+SELECT 'VIROU_AUTOMOBILE' AS tipo, COUNT(*) AS qtd
+FROM dw_star_scd2.customer_history h
+WHERE h.mktsegment_old <> 'AUTOMOBILE'
+  AND h.mktsegment_new  = 'AUTOMOBILE'
+UNION ALL
+-- Total reclassificados (qualquer segmento)
+SELECT 'TOTAL_RECLASSIFICADOS' AS tipo, COUNT(*) AS qtd
+FROM dw_star_scd2.customer_history;
+```
+
+Esperado: `EX_AUTOMOBILE` ≈ 15.000, `VIROU_AUTOMOBILE` ≈ 15.000, `TOTAL` = 75.000 (5% de 1,5M, distribuídos uniformemente nos 5 segmentos pela seed `42`).
+
 ![](img/reclassificacao_quantitativa.png)
+
+**Esses ~30 mil clientes "mexidos" no `AUTOMOBILE` são a causa direta da divergência `N₃ ≠ N₁`.** O SCD2 atribui as vendas de 1995 ao segmento da **época**; o OLTP/SCD1 atribui ao segmento **atual**. Mesmo dado, leituras diferentes — daí a importância de declarar o contrato.
+
+> **Atenção à query**: a `customer_history` guarda `mktsegment_old` (antes) e `mktsegment_new` (depois), e o `c_mktsegment` da OLTP foi **sobrescrito** pelo `mktsegment_new` no `load_tpch.sh`. Por isso a query compara `old` vs `new` dentro da própria `customer_history` — não junta com `oltp_mirror.customer`.
+
+</blockquote>
+</details>
 
 ### Qual dos três números é o certo?
 
@@ -1835,19 +1903,116 @@ Ambas as perguntas são legítimas. Ambas aparecem em reuniões reais. A diferen
 
 ---
 
-<a id="passo-28"></a>
+<a id="passo-26"></a>
 
-28. **Marina entra na reunião com o conselho daqui a pouco**. Você precisa entregar a ela um documento curto e objetivo justificando qual número ela apresenta. No terminal do Codespaces, copie o template e preencha:
+26. **Marina entra na reunião em 30 minutos.** Rode a query abaixo: ela monta automaticamente o **rascunho do recado para Marina** em 5 linhas (uma por linha do resultado), com os 3 números já formatados em padrão BR. Você só precisa decidir a última linha (a recomendação) — porque essa parte é juízo de engenharia, não cálculo:
+
+```sql
+WITH oltp AS (
+    SELECT r.r_name AS region_name,
+           ROUND(SUM(l.l_extendedprice * (1 - l.l_discount)), 2) AS n1_oltp
+    FROM oltp_mirror.lineitem l
+    JOIN oltp_mirror.orders   o ON o.o_orderkey   = l.l_orderkey
+    JOIN oltp_mirror.customer c ON c.c_custkey    = o.o_custkey
+    JOIN oltp_mirror.nation   n ON n.n_nationkey  = c.c_nationkey
+    JOIN oltp_mirror.region   r ON r.r_regionkey  = n.n_regionkey
+    WHERE o.o_orderdate >= DATE '1995-01-01'
+      AND o.o_orderdate <  DATE '1996-01-01'
+      AND c.c_mktsegment = 'AUTOMOBILE'
+    GROUP BY r.r_name
+),
+star AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n2_star
+    FROM dw_star.f_vendas    f
+    JOIN dw_star.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data      d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano = 1995 AND c.sg_segmento = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+),
+scd2 AS (
+    SELECT g.nm_regiao AS region_name,
+           ROUND(SUM(f.vl_receita_liquida), 2) AS n3_scd2
+    FROM dw_star_scd2.f_vendas      f
+    JOIN dw_star_scd2.dim_customer  c ON c.customer_sk  = f.customer_sk
+    JOIN dw_star.dim_geografia      g ON g.geografia_sk = f.geografia_sk
+    JOIN dw_star.dim_data           d ON d.data_sk      = f.data_sk
+    WHERE d.nr_ano = 1995 AND c.sg_segmento = 'AUTOMOBILE'
+    GROUP BY g.nm_regiao
+),
+calc AS (
+    SELECT o.region_name,
+           o.n1_oltp,
+           sc.n3_scd2,
+           ROUND(100.0 * (sc.n3_scd2 - o.n1_oltp) / o.n1_oltp, 2) AS diff_pct
+    FROM oltp o
+    JOIN star s  ON s.region_name  = o.region_name
+    JOIN scd2 sc ON sc.region_name = o.region_name
+    WHERE o.region_name = 'AMERICA'
+)
+SELECT 1 AS ord,
+       'Marina, consolidado de receita AUTOMOBILE 1995 (regiao AMERICA):' AS recado_marina
+FROM calc
+UNION ALL
+SELECT 2,
+       '- N1 (OLTP) e N2 (Star SCD1) -> R$ '
+       || TRANSLATE(TO_CHAR(n1_oltp, 'FM999G999G999G990D00'), '.,', ',.')
+       || ' (segmento ATUAL do cliente)'
+FROM calc
+UNION ALL
+SELECT 3,
+       '- N3 (Star SCD2)             -> R$ '
+       || TRANSLATE(TO_CHAR(n3_scd2, 'FM999G999G999G990D00'), '.,', ',.')
+       || ' (segmento da EPOCA, em 1995)'
+FROM calc
+UNION ALL
+SELECT 4,
+       '- Diferenca: '
+       || TRANSLATE(TO_CHAR(diff_pct, 'FM990D00'), '.,', ',.')
+       || '% (~30 mil clientes mudaram de segmento depois de 1995)'
+FROM calc
+UNION ALL
+SELECT 5,
+       '- Recomendacao para o conselho: usar N___, porque _____________________________.'
+ORDER BY ord;
+```
+
+A query devolve **5 rows** no resultado, uma por linha do recado. **No Query Editor v2**, clique no cabeçalho da coluna `recado_marina` para selecionar a coluna inteira, e copie (`Cmd/Ctrl+C`) — você cola um texto multilinha já formatado:
+
+```text
+Marina, consolidado de receita AUTOMOBILE 1995 (regiao AMERICA):
+- N1 (OLTP) e N2 (Star SCD1) -> R$ 13.134.619.647,09 (segmento ATUAL do cliente)
+- N3 (Star SCD2)             -> R$ 13.114.525.409,21 (segmento da EPOCA, em 1995)
+- Diferenca: -0,15% (~30 mil clientes mudaram de segmento depois de 1995)
+- Recomendacao para o conselho: usar N___, porque _____________________________.
+```
+
+> [!TIP]
+> O truque do `TRANSLATE(TO_CHAR(...), '.,', ',.')` troca os separadores americanos (`,` milhar / `.` decimal) pelos brasileiros (`.` milhar / `,` decimal) — Redshift não tem locale BR nativo, então essa substituição manual é o padrão.
+
+> [!TIP]
+> **A última linha é sua.** Não existe resposta certa — existe trade-off declarado:
+>
+> - escolheu **`N₁/N₂`** → *"queremos saber quanto a base ATUAL de clientes AUTOMOBILE faturou em 1995"*
+> - escolheu **`N₃`** → *"queremos faturamento histórico fiel ao segmento da época, como auditoria/compliance pediria"*
+>
+> Em entrevistas de engenharia de dados sênior, **defender uma escolha de modelagem em 1 frase para um stakeholder não-técnico** é um sinal de senioridade tão forte quanto escrever o SQL.
+
+<details>
+<summary><b>💡 Quer aprofundar em casa? Versão completa do entregável (estilo ADR)</b></summary>
+<blockquote>
+
+Para quem quer levar a discussão adiante (estudo individual, treino para entrevista, ou dump em portfolio), existe um template completo em [`DECISION_TEMPLATE.md`](DECISION_TEMPLATE.md) com seções de contexto, alternativas descartadas, consequências, perguntas para o stakeholder e decisões técnicas secundárias (distkey, sortkey, materialização). Não é parte da execução em sala — é uma extensão opcional.
 
 ```bash
 cd /workspaces/FIAP-Data-Warehouse-Lakehouse-e-Data-Mesh/03-Data-Modeling-e-Data-Warehouse/02-modelagem-e-carga
 cp DECISION_TEMPLATE.md DECISION.md
+code DECISION.md
 ```
 
-O [`DECISION_TEMPLATE.md`](DECISION_TEMPLATE.md) tem seções para: contexto (a pergunta que Marina fez), os três números observados, decisão + alternativas descartadas, consequências, perguntas que você faria a Marina antes de fechar a posição, decisões técnicas secundárias (distkey, sortkey, receita materializada vs. view).
-
-> [!TIP]
-> Em entrevistas de engenharia de dados, esse tipo de documento aparece como sinal de senioridade. Saber escrever um é tão importante quanto saber escrever o SQL — porque você nunca decide sozinho, sempre defende a decisão para alguém como Marina.
+</blockquote>
+</details>
 
 ---
 
@@ -1910,7 +2075,7 @@ No [Lab 03.3](../03-analise-dimensional/README.md) você vai partir do schema qu
 
 Antes de abrir issue/perguntar no Slack, colete estas 4 informações — elas reduzem o tempo de resposta em 10×:
 
-1. **Em que passo você está** (ex: "passo 14c, criando dim_supplier")
+1. **Em que passo você está** (ex: "passo 13c, criando dim_produto")
 2. **Mensagem de erro literal** (copia-cola completo, não screenshot se der — texto é pesquisável)
 3. **Saída de `\dt oltp_mirror.*` e `\dt dw_star.*`** no Query Editor (mostra o que foi criado de fato)
 4. **O que você já tentou** (não é julgamento — é para não repetirmos sugestão que você já descartou)
